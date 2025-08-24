@@ -18,10 +18,10 @@ version = "1.3.0"
 
 description = "A library to parse and drive the crontab expression."
 edition = "2021"
-homepage = "https://github.com/cratesland/cronexpr"
+homepage = "https://github.com/fast/cronexpr"
 license = "Apache-2.0"
 readme = "README.md"
-repository = "https://github.com/cratesland/cronexpr"
+repository = "https://github.com/fast/cronexpr"
 rust-version = "1.80.0"
 
 [package.metadata.docs.rs]
@@ -30,7 +30,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
 jiff = { version = "0.2.0" }
-winnow = { version = "0.7.0" }
+winnow = { version = "0.7.13" }
 
 [dev-dependencies]
 insta = { version = "1.41", features = ["filters"] }
