@@ -355,7 +355,7 @@
 //!
 //! ## Why do you create this crate?
 //!
-//! The other day when I was implementing [`CREATE JOB` in ScopeDB](https://docs.scopedb.io/reference/commands/stmt-ddl/#create-job),
+//! The other day when I was implementing the internal `CREATE JOB` statement in ScopeDB,
 //! it comes to a requirement to support parsing and driving a crontab expression.
 //!
 //! Typically, the language interface looks like:
@@ -468,8 +468,6 @@ use std::collections::HashSet;
 use std::fmt;
 use std::str::FromStr;
 
-use jiff::civil::Weekday;
-use jiff::tz::TimeZone;
 use jiff::RoundMode;
 use jiff::Span;
 use jiff::Timestamp;
@@ -477,13 +475,15 @@ use jiff::ToSpan;
 use jiff::Unit;
 use jiff::Zoned;
 use jiff::ZonedRound;
+use jiff::civil::Weekday;
+use jiff::tz::TimeZone;
 
 mod parser;
+pub use parser::FallbackTimezoneOption;
+pub use parser::ParseOptions;
 pub use parser::normalize_crontab;
 pub use parser::parse_crontab;
 pub use parser::parse_crontab_with;
-pub use parser::FallbackTimezoneOption;
-pub use parser::ParseOptions;
 
 pub extern crate jiff;
 
