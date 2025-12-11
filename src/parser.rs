@@ -18,6 +18,9 @@ use std::ops::RangeInclusive;
 
 use jiff::civil::Weekday;
 use jiff::fmt::temporal::DateTimeParser;
+use winnow::ModalParser;
+use winnow::ModalResult;
+use winnow::Parser;
 use winnow::ascii::dec_uint;
 use winnow::combinator::alt;
 use winnow::combinator::eof;
@@ -28,9 +31,6 @@ use winnow::error::ErrMode;
 use winnow::error::FromExternalError;
 use winnow::stream::Stream;
 use winnow::token::take_while;
-use winnow::ModalParser;
-use winnow::ModalResult;
-use winnow::Parser;
 
 use crate::Crontab;
 use crate::Error;
@@ -111,9 +111,9 @@ pub fn normalize_crontab(input: &str) -> String {
 /// syntax definitions.
 ///
 /// ```rust
-/// use cronexpr::parse_crontab_with;
 /// use cronexpr::FallbackTimezoneOption;
 /// use cronexpr::ParseOptions;
+/// use cronexpr::parse_crontab_with;
 ///
 /// let mut options = ParseOptions::default();
 /// parse_crontab_with("* * * * * Asia/Shanghai", options).unwrap();
@@ -342,11 +342,7 @@ fn parse_days_of_week<'a>(
     };
 
     fn norm_sunday(n: u8) -> u8 {
-        if n != 0 {
-            n
-        } else {
-            7
-        }
+        if n != 0 { n } else { 7 }
     }
 
     fn make_weekday(n: u8) -> Weekday {

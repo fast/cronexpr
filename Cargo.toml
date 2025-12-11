@@ -14,23 +14,23 @@
 
 [package]
 name = "cronexpr"
-version = "1.3.1"
+version = "1.4.0"
 
 description = "A library to parse and drive the crontab expression."
-edition = "2021"
+edition = "2024"
 homepage = "https://github.com/fast/cronexpr"
 license = "Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/fast/cronexpr"
-rust-version = "1.80.0"
+rust-version = "1.85.0"
 
 [package.metadata.docs.rs]
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
-jiff = { version = "0.2.0" }
-winnow = { version = "0.7.13" }
+jiff = { version = "0.2.16" }
+winnow = { version = "0.7.14" }
 
 [dev-dependencies]
-insta = { version = "1.41", features = ["filters"] }
+insta = { version = "1.44.3", features = ["filters"] }
