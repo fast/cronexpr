@@ -282,18 +282,22 @@ fn parse_months<'a>(
         context: ParseContext,
     ) -> impl ModalParser<&'a str, u8, ContextError> {
         alt((
-            "JAN".map(|_| 1),
-            "FEB".map(|_| 2),
-            "MAR".map(|_| 3),
-            "APR".map(|_| 4),
-            "MAY".map(|_| 5),
-            "JUN".map(|_| 6),
-            "JUL".map(|_| 7),
-            "AUG".map(|_| 8),
-            "SEP".map(|_| 9),
-            "OCT".map(|_| 10),
-            "NOV".map(|_| 11),
-            "DEC".map(|_| 12),
+            alt((
+                "JAN".map(|_| 1),
+                "FEB".map(|_| 2),
+                "MAR".map(|_| 3),
+                "APR".map(|_| 4),
+                "MAY".map(|_| 5),
+                "JUN".map(|_| 6),
+            )),
+            alt((
+                "JUL".map(|_| 7),
+                "AUG".map(|_| 8),
+                "SEP".map(|_| 9),
+                "OCT".map(|_| 10),
+                "NOV".map(|_| 11),
+                "DEC".map(|_| 12),
+            )),
             parse_single_number(context),
         ))
     }

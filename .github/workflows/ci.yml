@@ -29,8 +29,7 @@ on:
 #   https://docs.github.com/en/actions/using-jobs/using-concurrency
 #   https://docs.github.com/en/actions/learn-github-actions/contexts#github-context
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.number
-    || github.run_id }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.number || github.run_id }}
   cancel-in-progress: true
 
 jobs:
@@ -38,7 +37,7 @@ jobs:
     name: Check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Install toolchain
         uses: dtolnay/rust-toolchain@nightly
         with:

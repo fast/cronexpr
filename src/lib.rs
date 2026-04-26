@@ -593,10 +593,10 @@ impl ParsedDaysOfWeek {
                 continue;
             }
 
-            if let Ok(nth_weekday) = value.nth_weekday_of_month(*nth as i8, *weekday) {
-                if nth_weekday.date() == value.date() {
-                    return true;
-                }
+            if let Ok(nth_weekday) = value.nth_weekday_of_month(*nth as i8, *weekday)
+                && nth_weekday.date() == value.date()
+            {
+                return true;
             }
         }
 
