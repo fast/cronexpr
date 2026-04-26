@@ -2,14 +2,14 @@
 
 [![Crates.io][crates-badge]][crates-url]
 [![Documentation][docs-badge]][docs-url]
-[![MSRV 1.85][msrv-badge]](https://www.whatrustisit.com)
+[![MSRV 1.88][msrv-badge]](https://www.whatrustisit.com)
 [![Apache 2.0 licensed][license-badge]][license-url]
 [![Build Status][actions-badge]][actions-url]
 
 [crates-badge]: https://img.shields.io/crates/v/cronexpr.svg
 [crates-url]: https://crates.io/crates/cronexpr
 [docs-badge]: https://docs.rs/cronexpr/badge.svg
-[msrv-badge]: https://img.shields.io/badge/MSRV-1.85-green?logo=rust
+[msrv-badge]: https://img.shields.io/badge/MSRV-1.88-green?logo=rust
 [docs-url]: https://docs.rs/cronexpr
 [license-badge]: https://img.shields.io/crates/l/cronexpr
 [license-url]: LICENSE
@@ -114,7 +114,7 @@ If you are using `cronexpr` in your project, please feel free to open a PR to ad
 
 ## Minimum Rust version policy
 
-This crate is built against the latest stable release, and its minimum supported rustc version is 1.85.0.
+This crate is built against the latest stable release, and its minimum supported rustc version is 1.88.0.
 
 The policy is that the minimum Rust version required to use this crate can be increased in minor version updates. For example, if cronexpr 1.0 requires Rust 1.20.0, then cronexpr 1.0.z for all values of z will also require Rust 1.20.0 or newer. However, cronexpr 1.y for y > 0 may require a newer minimum version of Rust.
 

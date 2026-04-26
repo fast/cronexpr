@@ -37,7 +37,7 @@ jobs:
     name: Check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Install toolchain
         uses: dtolnay/rust-toolchain@nightly
         with:
@@ -59,7 +59,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        rust-version: [ "1.85.0", "stable" ]
+        rust-version: [ "1.88.0", "stable" ]
     steps:
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
