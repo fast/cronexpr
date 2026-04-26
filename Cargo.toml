@@ -14,7 +14,7 @@
 
 [package]
 name = "cronexpr"
-version = "1.4.0"
+version = "1.5.0"
 
 description = "A library to parse and drive the crontab expression."
 edition = "2024"
@@ -22,7 +22,7 @@ homepage = "https://github.com/fast/cronexpr"
 license = "Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/fast/cronexpr"
-rust-version = "1.85.0"
+rust-version = "1.88.0"
 
 [package.metadata.docs.rs]
 all-features = true

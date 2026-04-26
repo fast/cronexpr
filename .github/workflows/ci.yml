@@ -29,7 +29,8 @@ on:
 #   https://docs.github.com/en/actions/using-jobs/using-concurrency
 #   https://docs.github.com/en/actions/learn-github-actions/contexts#github-context
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.number || github.run_id }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.number
+    || github.run_id }}
   cancel-in-progress: true
 
 jobs:
@@ -59,7 +60,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        rust-version: [ "1.85.0", "stable" ]
+        rust-version: [ "1.88.0", "stable" ]
     steps:
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
