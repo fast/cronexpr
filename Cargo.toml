@@ -29,8 +29,8 @@ all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
-jiff = { version = "0.2.16" }
-winnow = { version = "0.7.14" }
+jiff = { version = "0.2.24" }
+winnow = { version = "1.0.2" }
 
 [dev-dependencies]
 insta = { version = "1.44.3", features = ["filters"] }
