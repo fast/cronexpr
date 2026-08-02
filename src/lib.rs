@@ -116,6 +116,8 @@
 //! * For hours, it can be from 0 to 23.
 //! * For days of month, it can be from 1 to 31.
 //!
+//! Numeric values can have leading zeros, such as `04`.
+//!
 //! For months, it can be 1-12. Alternatively, it can be the first three letters of the English
 //! name of the month (case-insensitive), such as `JAN`, `Feb`, etc. `JAN` will be mapped to 1,
 //! `Feb` will be mapped to 2, and so on.

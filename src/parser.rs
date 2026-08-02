@@ -18,19 +18,6 @@ use std::ops::RangeInclusive;
 
 use jiff::civil::Weekday;
 use jiff::fmt::temporal::DateTimeParser;
-use winnow::ModalParser;
-use winnow::ModalResult;
-use winnow::Parser;
-use winnow::ascii::dec_uint;
-use winnow::combinator::alt;
-use winnow::combinator::eof;
-use winnow::combinator::fail;
-use winnow::combinator::separated;
-use winnow::error::ContextError;
-use winnow::error::ErrMode;
-use winnow::error::FromExternalError;
-use winnow::stream::Stream;
-use winnow::token::take_while;
 
 use crate::Crontab;
 use crate::Error;
@@ -81,8 +68,46 @@ impl Default for ParseOptions {
 
 #[derive(Debug, Copy, Clone)]
 struct ParseContext {
-    range_fn: fn() -> RangeInclusive<u8>,
+    min: u8,
+    max: u8,
     hashed_value: Option<u64>,
+}
+
+impl ParseContext {
+    fn range(self) -> RangeInclusive<u8> {
+        self.min..=self.max
+    }
+}
+
+#[derive(Debug)]
+struct ParseFailure {
+    offset: usize,
+    reason: Option<String>,
+}
+
+impl ParseFailure {
+    fn malformed(offset: usize) -> Self {
+        ParseFailure {
+            offset,
+            reason: None,
+        }
+    }
+
+    fn custom(offset: usize, reason: impl Into<String>) -> Self {
+        ParseFailure {
+            offset,
+            reason: Some(reason.into()),
+        }
+    }
+}
+
+type ParseResult<T> = Result<T, ParseFailure>;
+
+#[derive(Debug, Copy, Clone)]
+enum LiteralKind {
+    Number,
+    Month,
+    DayOfWeek,
 }
 
 /// Normalize a crontab expression to compact form.
@@ -151,41 +176,37 @@ pub fn parse_crontab_with(input: &str, options: ParseOptions) -> Result<Crontab,
 
     let minutes_start = 0;
     let minutes_end = normalized.find(' ').unwrap_or(normalized.len());
-    let minutes = parse_minutes(options)
-        .parse(&normalized[..minutes_end])
+    let minutes = parse_minutes(&normalized[..minutes_end], options)
         .map_err(|err| format_parse_error(&normalized, minutes_start, err))?;
 
     let hours_start = minutes_end + 1;
     let hours_end = find_next_part(&normalized, hours_start, "hours")?;
-    let hours = parse_hours(options)
-        .parse(&normalized[hours_start..hours_end])
+    let hours = parse_hours(&normalized[hours_start..hours_end], options)
         .map_err(|err| format_parse_error(&normalized, hours_start, err))?;
 
     let days_of_month_start = hours_end + 1;
     let days_of_month_end = find_next_part(&normalized, days_of_month_start, "days of month")?;
-    let days_of_month = parse_days_of_month(options)
-        .parse(&normalized[days_of_month_start..days_of_month_end])
-        .map_err(|err| format_parse_error(&normalized, days_of_month_start, err))?;
+    let days_of_month =
+        parse_days_of_month(&normalized[days_of_month_start..days_of_month_end], options)
+            .map_err(|err| format_parse_error(&normalized, days_of_month_start, err))?;
 
     let months_start = days_of_month_end + 1;
     let months_end = find_next_part(&normalized, months_start, "months")?;
     let months_part = &normalized[months_start..months_end];
-    let months = parse_months(options)
-        .parse(months_part)
+    let months = parse_months(months_part, options)
         .map_err(|err| format_parse_error(&normalized, months_start, err))?;
 
     let days_of_week_start = months_end + 1;
     let days_of_week_end = find_next_part(&normalized, days_of_week_start, "days of week")?;
-    let days_of_week = parse_days_of_week(options)
-        .parse(&normalized[days_of_week_start..days_of_week_end])
-        .map_err(|err| format_parse_error(&normalized, days_of_week_start, err))?;
+    let days_of_week =
+        parse_days_of_week(&normalized[days_of_week_start..days_of_week_end], options)
+            .map_err(|err| format_parse_error(&normalized, days_of_week_start, err))?;
 
     let timezone_start = days_of_week_end + 1;
     let timezone = if timezone_start < normalized.len() {
         let timezone_end = normalized.len();
         let timezone_part = &normalized[timezone_start..timezone_end];
-        parse_timezone
-            .parse(timezone_part)
+        parse_timezone(timezone_part)
             .map_err(|err| format_parse_error(&normalized, timezone_start, err))?
     } else {
         match options.fallback_timezone_option {
@@ -232,322 +253,139 @@ fn format_incomplete_error(input: &str, next_part: &str) -> Error {
     format_error(input, &indent, &format!("missing {next_part}"))
 }
 
-fn format_parse_error(
-    input: &str,
-    start: usize,
-    parse_error: winnow::error::ParseError<&str, ContextError>,
-) -> Error {
-    let offset = start + parse_error.offset();
+fn format_parse_error(input: &str, start: usize, parse_error: ParseFailure) -> Error {
+    let offset = start + parse_error.offset;
     let indent = " ".repeat(offset);
 
-    let error = parse_error.into_inner().to_string();
-    let error = if error.is_empty() {
-        "malformed expression"
-    } else {
-        &error
-    };
+    let error = parse_error
+        .reason
+        .as_deref()
+        .unwrap_or("malformed expression");
 
     format_error(input, &indent, error)
 }
 
-fn parse_minutes<'a>(
-    options: ParseOptions,
-) -> impl ModalParser<&'a str, PossibleLiterals, ContextError> {
+fn parse_minutes(input: &str, options: ParseOptions) -> ParseResult<PossibleLiterals> {
     let context = ParseContext {
-        range_fn: || 0..=59,
+        min: 0,
+        max: 59,
         hashed_value: options.hashed_value,
     };
-    move |input: &mut &str| do_parse_number_only(context, input)
+    parse_literal_field(input, context, LiteralKind::Number)
 }
 
-fn parse_hours<'a>(
-    options: ParseOptions,
-) -> impl ModalParser<&'a str, PossibleLiterals, ContextError> {
+fn parse_hours(input: &str, options: ParseOptions) -> ParseResult<PossibleLiterals> {
     let context = ParseContext {
-        range_fn: || 0..=23,
+        min: 0,
+        max: 23,
         hashed_value: options.hashed_value,
     };
-    move |input: &mut &str| do_parse_number_only(context, input)
+    parse_literal_field(input, context, LiteralKind::Number)
 }
 
-fn parse_months<'a>(
-    options: ParseOptions,
-) -> impl ModalParser<&'a str, PossibleLiterals, ContextError> {
+fn parse_months(input: &str, options: ParseOptions) -> ParseResult<PossibleLiterals> {
     let context = ParseContext {
-        range_fn: || 1..=12,
+        min: 1,
+        max: 12,
         hashed_value: options.hashed_value,
     };
+    parse_literal_field(input, context, LiteralKind::Month)
+}
 
-    fn parse_single_month<'a>(
-        context: ParseContext,
-    ) -> impl ModalParser<&'a str, u8, ContextError> {
-        alt((
-            alt((
-                "JAN".map(|_| 1),
-                "FEB".map(|_| 2),
-                "MAR".map(|_| 3),
-                "APR".map(|_| 4),
-                "MAY".map(|_| 5),
-                "JUN".map(|_| 6),
-            )),
-            alt((
-                "JUL".map(|_| 7),
-                "AUG".map(|_| 8),
-                "SEP".map(|_| 9),
-                "OCT".map(|_| 10),
-                "NOV".map(|_| 11),
-                "DEC".map(|_| 12),
-            )),
-            parse_single_number(context),
-        ))
-    }
+fn parse_days_of_week(input: &str, options: ParseOptions) -> ParseResult<ParsedDaysOfWeek> {
+    let context = ParseContext {
+        min: 0,
+        max: 7,
+        hashed_value: options.hashed_value,
+    };
+    let start_with_asterisk = input.starts_with('*');
+    let values = parse_list(input, |item, offset| {
+        parse_day_of_week_item(item, offset, context)
+    })?;
 
-    move |input: &mut &str| {
-        let values = parse_list(alt((
-            parse_step(context, parse_single_month).map(|r| {
-                r.into_iter()
-                    .map(PossibleValue::Literal)
-                    .collect::<Vec<_>>()
-            }),
-            parse_range(context, parse_single_month).map(|r| {
-                r.into_iter()
-                    .map(PossibleValue::Literal)
-                    .collect::<Vec<_>>()
-            }),
-            parse_single_month(context).map(|n| vec![PossibleValue::Literal(n)]),
-            parse_hashed_value(context).map(|n| vec![PossibleValue::Literal(n)]),
-            parse_asterisk(context).map(|r| {
-                r.into_iter()
-                    .map(PossibleValue::Literal)
-                    .collect::<Vec<_>>()
-            }),
-        )))
-        .parse_next(input)?;
-
-        let mut literals = BTreeSet::new();
-        for value in values {
-            match value {
-                PossibleValue::Literal(value) => {
-                    literals.insert(value);
-                }
-                _ => unreachable!("unexpected value: {value:?}"),
+    let mut literals = BTreeSet::new();
+    let mut last_days_of_week = HashSet::new();
+    let mut nth_days_of_week = HashSet::new();
+    for value in values {
+        match value {
+            PossibleValue::Literal(value) => {
+                literals.insert(value);
             }
+            PossibleValue::LastDayOfWeek(weekday) => {
+                last_days_of_week.insert(weekday);
+            }
+            PossibleValue::NthDayOfWeek(nth, weekday) => {
+                nth_days_of_week.insert((nth, weekday));
+            }
+            _ => unreachable!("unexpected value: {value:?}"),
         }
-        Ok(PossibleLiterals { values: literals })
     }
+    Ok(ParsedDaysOfWeek {
+        literals,
+        last_days_of_week,
+        nth_days_of_week,
+        start_with_asterisk,
+    })
 }
 
-fn parse_days_of_week<'a>(
-    options: ParseOptions,
-) -> impl ModalParser<&'a str, ParsedDaysOfWeek, ContextError> {
+fn parse_days_of_month(input: &str, options: ParseOptions) -> ParseResult<ParsedDaysOfMonth> {
     let context = ParseContext {
-        range_fn: || 0..=7,
+        min: 1,
+        max: 31,
         hashed_value: options.hashed_value,
     };
+    let start_with_asterisk = input.starts_with('*');
+    let values = parse_list(input, |item, offset| {
+        parse_day_of_month_item(item, offset, context)
+    })?;
 
-    fn norm_sunday(n: u8) -> u8 {
-        if n != 0 { n } else { 7 }
-    }
-
-    fn make_weekday(n: u8) -> Weekday {
-        let weekday = norm_sunday(n) as i8;
-        Weekday::from_monday_one_offset(weekday)
-            .unwrap_or_else(|err| panic!("{weekday} must be in range 1..=7: {err:?}"))
-    }
-
-    fn parse_single_day_of_week<'a>(
-        context: ParseContext,
-    ) -> impl ModalParser<&'a str, u8, ContextError> {
-        alt((
-            "SUN".map(|_| 0),
-            "MON".map(|_| 1),
-            "TUE".map(|_| 2),
-            "WED".map(|_| 3),
-            "THU".map(|_| 4),
-            "FRI".map(|_| 5),
-            "SAT".map(|_| 6),
-            parse_single_number(context),
-        ))
-    }
-
-    fn parse_single_day_of_week_ext<'a>(
-        context: ParseContext,
-    ) -> impl ModalParser<&'a str, PossibleValue, ContextError> {
-        alt((
-            (parse_single_day_of_week(context), "L")
-                .map(|(n, _)| PossibleValue::LastDayOfWeek(make_weekday(n))),
-            (
-                parse_single_day_of_week(context),
-                "#",
-                parse_single_number(ParseContext {
-                    range_fn: || 1..=5,
-                    hashed_value: None,
-                }),
-            )
-                .map(|(n, _, nth)| PossibleValue::NthDayOfWeek(nth, make_weekday(n))),
-            parse_single_day_of_week(context).map(|n| PossibleValue::Literal(norm_sunday(n))),
-            parse_hashed_value(context).map(|n| PossibleValue::Literal(norm_sunday(n))),
-        ))
-    }
-
-    move |input: &mut &str| {
-        let start_with_asterisk = input.starts_with('*');
-
-        let values = parse_list(alt((
-            parse_step(context, parse_single_day_of_week).map(|r| {
-                r.into_iter()
-                    .map(norm_sunday)
-                    .map(PossibleValue::Literal)
-                    .collect::<Vec<_>>()
-            }),
-            parse_range(context, parse_single_day_of_week).map(|r| {
-                r.into_iter()
-                    .map(norm_sunday)
-                    .map(PossibleValue::Literal)
-                    .collect::<Vec<_>>()
-            }),
-            parse_single_day_of_week_ext(context).map(|n| vec![n]),
-            parse_asterisk(context).map(|r| {
-                r.into_iter()
-                    .map(norm_sunday)
-                    .map(PossibleValue::Literal)
-                    .collect::<Vec<_>>()
-            }),
-        )))
-        .parse_next(input)?;
-
-        let mut literals = BTreeSet::new();
-        let mut last_days_of_week = HashSet::new();
-        let mut nth_days_of_week = HashSet::new();
-        for value in values {
-            match value {
-                PossibleValue::Literal(value) => {
-                    literals.insert(value);
-                }
-                PossibleValue::LastDayOfWeek(weekday) => {
-                    last_days_of_week.insert(weekday);
-                }
-                PossibleValue::NthDayOfWeek(nth, weekday) => {
-                    nth_days_of_week.insert((nth, weekday));
-                }
-                _ => unreachable!("unexpected value: {value:?}"),
+    let mut literals = BTreeSet::new();
+    let mut last_day_of_month = false;
+    let mut nearest_weekdays = BTreeSet::new();
+    for value in values {
+        match value {
+            PossibleValue::Literal(value) => {
+                literals.insert(value);
             }
+            PossibleValue::LastDayOfMonth => {
+                last_day_of_month = true;
+            }
+            PossibleValue::NearestWeekday(day) => {
+                nearest_weekdays.insert(day);
+            }
+            _ => unreachable!("unexpected value: {value:?}"),
         }
-        Ok(ParsedDaysOfWeek {
-            literals,
-            last_days_of_week,
-            nth_days_of_week,
-            start_with_asterisk,
-        })
     }
+    Ok(ParsedDaysOfMonth {
+        literals,
+        last_day_of_month,
+        nearest_weekdays,
+        start_with_asterisk,
+    })
 }
 
-fn parse_days_of_month<'a>(
-    options: ParseOptions,
-) -> impl ModalParser<&'a str, ParsedDaysOfMonth, ContextError> {
-    let context = ParseContext {
-        range_fn: || 1..=31,
-        hashed_value: options.hashed_value,
-    };
-
-    fn parse_single_day_of_month_ext<'a>(
-        context: ParseContext,
-    ) -> impl ModalParser<&'a str, PossibleValue, ContextError> {
-        alt((
-            (parse_single_number(context), "W").map(|(n, _)| PossibleValue::NearestWeekday(n)),
-            parse_single_number(context).map(PossibleValue::Literal),
-            "L".map(|_| PossibleValue::LastDayOfMonth),
-            parse_hashed_value(context).map(PossibleValue::Literal),
-        ))
-    }
-
-    move |input: &mut &str| {
-        let start_with_asterisk = input.starts_with('*');
-
-        let values = parse_list(alt((
-            parse_step(context, parse_single_number).map(|r| {
-                r.into_iter()
-                    .map(PossibleValue::Literal)
-                    .collect::<Vec<_>>()
-            }),
-            parse_range(context, parse_single_number).map(|r| {
-                r.into_iter()
-                    .map(PossibleValue::Literal)
-                    .collect::<Vec<_>>()
-            }),
-            parse_single_day_of_month_ext(context).map(|n| vec![n]),
-            parse_asterisk(context).map(|r| {
-                r.into_iter()
-                    .map(PossibleValue::Literal)
-                    .collect::<Vec<_>>()
-            }),
-        )))
-        .parse_next(input)?;
-
-        let mut literals = BTreeSet::new();
-        let mut last_day_of_month = false;
-        let mut nearest_weekdays = BTreeSet::new();
-        for value in values {
-            match value {
-                PossibleValue::Literal(value) => {
-                    literals.insert(value);
-                }
-                PossibleValue::LastDayOfMonth => {
-                    last_day_of_month = true;
-                }
-                PossibleValue::NearestWeekday(day) => {
-                    nearest_weekdays.insert(day);
-                }
-                _ => unreachable!("unexpected value: {value:?}"),
-            }
-        }
-        Ok(ParsedDaysOfMonth {
-            literals,
-            last_day_of_month,
-            nearest_weekdays,
-            start_with_asterisk,
-        })
-    }
-}
-
-fn parse_timezone(input: &mut &str) -> ModalResult<jiff::tz::TimeZone> {
-    take_while(0.., |_| true)
-        .try_map_cut(|timezone| {
-            static PARSER: DateTimeParser = DateTimeParser::new();
-            PARSER.parse_time_zone(timezone).map_err(|_| {
-                Error(format!(
-                    "failed to find timezone {timezone}; \
+fn parse_timezone(timezone: &str) -> ParseResult<jiff::tz::TimeZone> {
+    static PARSER: DateTimeParser = DateTimeParser::new();
+    PARSER.parse_time_zone(timezone).map_err(|_| {
+        ParseFailure::custom(
+            0,
+            format!(
+                "failed to find timezone {timezone}; \
                 for a list of time zones, see the list of tz database time zones on Wikipedia: \
                 https://en.wikipedia.org/wiki/List_of_tz_database_time_zones#List"
-                ))
-            })
-        })
-        .parse_next(input)
+            ),
+        )
+    })
 }
 
-// number only = minutes, hours, or months
-fn do_parse_number_only(context: ParseContext, input: &mut &str) -> ModalResult<PossibleLiterals> {
-    let values = parse_list(alt((
-        parse_step(context, parse_single_number).map(|r| {
-            r.into_iter()
-                .map(PossibleValue::Literal)
-                .collect::<Vec<_>>()
-        }),
-        parse_range(context, parse_single_number).map(|r| {
-            r.into_iter()
-                .map(PossibleValue::Literal)
-                .collect::<Vec<_>>()
-        }),
-        parse_single_number(context).map(|n| vec![PossibleValue::Literal(n)]),
-        parse_hashed_value(context).map(|n| vec![PossibleValue::Literal(n)]),
-        parse_asterisk(context).map(|r| {
-            r.into_iter()
-                .map(PossibleValue::Literal)
-                .collect::<Vec<_>>()
-        }),
-    )))
-    .parse_next(input)?;
-
+fn parse_literal_field(
+    input: &str,
+    context: ParseContext,
+    kind: LiteralKind,
+) -> ParseResult<PossibleLiterals> {
+    let values = parse_list(input, |item, offset| {
+        parse_literal_item(item, offset, context, kind, identity)
+    })?;
     let mut literals = BTreeSet::new();
     for value in values {
         match value {
@@ -560,194 +398,398 @@ fn do_parse_number_only(context: ParseContext, input: &mut &str) -> ModalResult<
     Ok(PossibleLiterals { values: literals })
 }
 
-fn parse_hashed_value<'a>(context: ParseContext) -> impl ModalParser<&'a str, u8, ContextError> {
-    move |input: &mut &str| {
-        if let Some(hashed_value) = context.hashed_value {
-            let range = (context.range_fn)();
-            let hashed_value = map_hash_into_range(hashed_value, range);
-            "H".map(move |_| hashed_value).parse_next(input)
-        } else {
-            fail(input)
+fn parse_list<F>(input: &str, mut parse_item: F) -> ParseResult<Vec<PossibleValue>>
+where
+    F: FnMut(&str, usize) -> ParseResult<Vec<PossibleValue>>,
+{
+    if input.is_empty() {
+        return Err(ParseFailure::malformed(0));
+    }
+
+    let mut values = Vec::new();
+    let mut item_start = 0;
+    loop {
+        let item_end = input[item_start..]
+            .find(',')
+            .map(|offset| item_start + offset)
+            .unwrap_or(input.len());
+        if item_start == item_end {
+            return Err(ParseFailure::malformed(item_start.saturating_sub(1)));
         }
+
+        match parse_item(&input[item_start..item_end], item_start) {
+            Ok(item_values) => values.extend(item_values),
+            Err(error)
+                if item_start > 0 && error.offset == item_start && error.reason.is_none() =>
+            {
+                return Err(ParseFailure::malformed(item_start - 1));
+            }
+            Err(error) => return Err(error),
+        }
+        if item_end == input.len() {
+            break;
+        }
+        if item_end + 1 == input.len() {
+            return Err(ParseFailure::malformed(item_end));
+        }
+        item_start = item_end + 1;
+    }
+    Ok(values)
+}
+
+fn parse_literal_item(
+    input: &str,
+    offset: usize,
+    context: ParseContext,
+    kind: LiteralKind,
+    normalize: fn(u8) -> u8,
+) -> ParseResult<Vec<PossibleValue>> {
+    match input.as_bytes().first() {
+        Some(b'*') => return parse_asterisk_item(input, offset, context, normalize),
+        Some(b'H') => return parse_hashed_item(input, offset, context, normalize),
+        _ => {}
+    }
+
+    let (lo, end) = parse_literal(input, offset, context, kind)?;
+    if end == input.len() {
+        return Ok(into_literals(vec![lo], normalize));
+    }
+
+    match input.as_bytes()[end] {
+        b'-' => parse_range_item(input, offset, context, kind, lo, end, normalize),
+        b'/' => parse_step_item(
+            input,
+            offset,
+            context,
+            end,
+            (lo..=context.max).collect(),
+            normalize,
+        ),
+        _ => Err(ParseFailure::malformed(offset + end)),
     }
 }
 
-fn parse_asterisk<'a>(context: ParseContext) -> impl ModalParser<&'a str, Vec<u8>, ContextError> {
-    let range = context.range_fn;
-    "*".map(move |_| range().collect())
-}
-
-fn parse_single_number<'a>(context: ParseContext) -> impl ModalParser<&'a str, u8, ContextError> {
-    let range = context.range_fn;
-    dec_uint.try_map_cut(move |n: u64| {
-        let range = range();
-
-        if n > u8::MAX as u64 {
-            return Err(Error(format!(
-                "value must be in range {range:?}; found {n}"
-            )));
-        }
-
-        let n = n as u8;
-        if range.contains(&n) {
-            Ok(n)
-        } else {
-            Err(Error(format!(
-                "value must be in range {range:?}; found {n}"
-            )))
-        }
-    })
-}
-
-fn parse_range<'a, P>(
+fn parse_day_of_month_item(
+    input: &str,
+    offset: usize,
     context: ParseContext,
-    parse_single_range_bound: fn(context: ParseContext) -> P,
-) -> impl ModalParser<&'a str, Vec<u8>, ContextError>
-where
-    P: ModalParser<&'a str, u8, ContextError>,
-{
-    let range = context.range_fn;
-    (
-        parse_single_range_bound(context),
-        "-",
-        parse_single_range_bound(context),
-    )
-        .try_map_cut(move |(lo, _, hi): (u8, _, u8)| {
-            let range = range();
-
-            if lo > hi {
-                return Err(Error(format!(
-                    "range must be in ascending order; found {lo}-{hi}"
-                )));
-            }
-
-            if range.contains(&lo) && range.contains(&hi) {
-                Ok((lo..=hi).collect())
+) -> ParseResult<Vec<PossibleValue>> {
+    match input.as_bytes().first() {
+        Some(b'*') => return parse_asterisk_item(input, offset, context, identity),
+        Some(b'H') => return parse_hashed_item(input, offset, context, identity),
+        Some(b'L') => {
+            return if input.len() == 1 {
+                Ok(vec![PossibleValue::LastDayOfMonth])
             } else {
-                Err(Error(format!(
-                    "range must be in range {range:?}; found {lo}-{hi}"
-                )))
-            }
-        })
+                Err(ParseFailure::malformed(offset + 1))
+            };
+        }
+        _ => {}
+    }
+
+    let (day, end) = parse_literal(input, offset, context, LiteralKind::Number)?;
+    if end == input.len() {
+        return Ok(vec![PossibleValue::Literal(day)]);
+    }
+
+    match input.as_bytes()[end] {
+        b'-' => parse_range_item(
+            input,
+            offset,
+            context,
+            LiteralKind::Number,
+            day,
+            end,
+            identity,
+        ),
+        b'/' => parse_step_item(
+            input,
+            offset,
+            context,
+            end,
+            (day..=context.max).collect(),
+            identity,
+        ),
+        b'W' if end + 1 == input.len() => Ok(vec![PossibleValue::NearestWeekday(day)]),
+        b'W' => Err(ParseFailure::malformed(offset + end + 1)),
+        _ => Err(ParseFailure::malformed(offset + end)),
+    }
 }
 
-fn parse_step<'a, P>(
+fn parse_day_of_week_item(
+    input: &str,
+    offset: usize,
     context: ParseContext,
-    parse_single_range_bound: fn(context: ParseContext) -> P,
-) -> impl ModalParser<&'a str, Vec<u8>, ContextError>
-where
-    P: ModalParser<&'a str, u8, ContextError>,
-{
-    let range = context.range_fn;
-    let range_end = *range().end();
+) -> ParseResult<Vec<PossibleValue>> {
+    match input.as_bytes().first() {
+        Some(b'*') => return parse_asterisk_item(input, offset, context, norm_sunday),
+        Some(b'H') => return parse_hashed_item(input, offset, context, norm_sunday),
+        _ => {}
+    }
 
-    let possible_values = alt((
-        parse_asterisk(context),
-        parse_range(context, parse_single_range_bound),
-        parse_single_range_bound(context).map(move |n| (n..=range_end).collect()),
-    ));
+    let (day, end) = parse_literal(input, offset, context, LiteralKind::DayOfWeek)?;
+    if end == input.len() {
+        return Ok(vec![PossibleValue::Literal(norm_sunday(day))]);
+    }
 
-    (possible_values, "/", dec_uint).try_map_cut(move |(candidates, _, step): (Vec<u8>, _, u64)| {
-        let range = range();
-
-        if step == 0 {
-            return Err(Error("step must be greater than 0".to_string()));
+    match input.as_bytes()[end] {
+        b'-' => parse_range_item(
+            input,
+            offset,
+            context,
+            LiteralKind::DayOfWeek,
+            day,
+            end,
+            norm_sunday,
+        ),
+        b'/' => parse_step_item(
+            input,
+            offset,
+            context,
+            end,
+            (day..=context.max).collect(),
+            norm_sunday,
+        ),
+        b'L' if end + 1 == input.len() => Ok(vec![PossibleValue::LastDayOfWeek(make_weekday(day))]),
+        b'L' => Err(ParseFailure::malformed(offset + end + 1)),
+        b'#' => {
+            let nth_context = ParseContext {
+                min: 1,
+                max: 5,
+                hashed_value: None,
+            };
+            let nth_start = end + 1;
+            let (nth, nth_len) = match parse_literal(
+                &input[nth_start..],
+                offset + nth_start,
+                nth_context,
+                LiteralKind::Number,
+            ) {
+                Ok(value) => value,
+                Err(error) if error.reason.is_none() => {
+                    return Err(ParseFailure::malformed(offset + end));
+                }
+                Err(error) => return Err(error),
+            };
+            let nth_end = nth_start + nth_len;
+            if nth_end != input.len() {
+                return Err(ParseFailure::malformed(offset + nth_end));
+            }
+            Ok(vec![PossibleValue::NthDayOfWeek(nth, make_weekday(day))])
         }
-
-        if step > u8::MAX as u64 {
-            return Err(Error(format!(
-                "step must be in range {range:?}; found {step}"
-            )));
-        }
-
-        let step = step as u8;
-        if !range.contains(&step) {
-            return Err(Error(format!(
-                "step must be in range {range:?}; found {step}"
-            )));
-        }
-
-        let mut values = Vec::new();
-        for n in candidates.into_iter().step_by(step as usize) {
-            values.push(n);
-        }
-        Ok(values)
-    })
+        _ => Err(ParseFailure::malformed(offset + end)),
+    }
 }
 
-fn parse_list<'a, P>(
-    parse_list_item: P,
-) -> impl ModalParser<&'a str, Vec<PossibleValue>, ContextError>
-where
-    P: ModalParser<&'a str, Vec<PossibleValue>, ContextError>,
-{
-    (separated(1.., parse_list_item, ","), eof)
-        .map(move |(ns, _): (Vec<Vec<PossibleValue>>, _)| ns.into_iter().flatten().collect())
+fn parse_asterisk_item(
+    input: &str,
+    offset: usize,
+    context: ParseContext,
+    normalize: fn(u8) -> u8,
+) -> ParseResult<Vec<PossibleValue>> {
+    let candidates = context.range().collect::<Vec<_>>();
+    if input.len() == 1 {
+        return Ok(into_literals(candidates, normalize));
+    }
+    if input.as_bytes()[1] == b'/' {
+        return parse_step_item(input, offset, context, 1, candidates, normalize);
+    }
+    Err(ParseFailure::malformed(offset + 1))
 }
+
+fn parse_hashed_item(
+    input: &str,
+    offset: usize,
+    context: ParseContext,
+    normalize: fn(u8) -> u8,
+) -> ParseResult<Vec<PossibleValue>> {
+    let Some(hashed_value) = context.hashed_value else {
+        return Err(ParseFailure::malformed(offset));
+    };
+    if input.len() != 1 {
+        return Err(ParseFailure::malformed(offset + 1));
+    }
+    let value = map_hash_into_range(hashed_value, context.range());
+    Ok(vec![PossibleValue::Literal(normalize(value))])
+}
+
+fn parse_range_item(
+    input: &str,
+    offset: usize,
+    context: ParseContext,
+    kind: LiteralKind,
+    lo: u8,
+    dash: usize,
+    normalize: fn(u8) -> u8,
+) -> ParseResult<Vec<PossibleValue>> {
+    let (hi, hi_len) = match parse_literal(&input[dash + 1..], offset + dash + 1, context, kind) {
+        Ok(value) => value,
+        Err(error) if error.reason.is_none() => {
+            return Err(ParseFailure::malformed(offset + dash));
+        }
+        Err(error) => return Err(error),
+    };
+
+    if lo > hi {
+        return Err(ParseFailure::custom(
+            offset,
+            format!("range must be in ascending order; found {lo}-{hi}"),
+        ));
+    }
+
+    let end = dash + 1 + hi_len;
+    let candidates = (lo..=hi).collect::<Vec<_>>();
+    if end == input.len() {
+        return Ok(into_literals(candidates, normalize));
+    }
+    if input.as_bytes()[end] == b'/' {
+        return parse_step_item(input, offset, context, end, candidates, normalize);
+    }
+    Err(ParseFailure::malformed(offset + end))
+}
+
+fn parse_step_item(
+    input: &str,
+    offset: usize,
+    context: ParseContext,
+    slash: usize,
+    candidates: Vec<u8>,
+    normalize: fn(u8) -> u8,
+) -> ParseResult<Vec<PossibleValue>> {
+    let step_start = slash + 1;
+    let (step, step_len) = match parse_decimal(&input[step_start..], offset + step_start) {
+        Ok(value) => value,
+        Err(_) => return Err(ParseFailure::malformed(offset + slash)),
+    };
+
+    if step == 0 {
+        return Err(ParseFailure::custom(offset, "step must be greater than 0"));
+    }
+    if step > u8::MAX as u64 || !context.range().contains(&(step as u8)) {
+        return Err(ParseFailure::custom(
+            offset,
+            format!("step must be in range {:?}; found {step}", context.range()),
+        ));
+    }
+
+    let end = step_start + step_len;
+    if end != input.len() {
+        return Err(ParseFailure::malformed(offset + end));
+    }
+    Ok(into_literals(
+        candidates.into_iter().step_by(step as usize).collect(),
+        normalize,
+    ))
+}
+
+fn parse_literal(
+    input: &str,
+    offset: usize,
+    context: ParseContext,
+    kind: LiteralKind,
+) -> ParseResult<(u8, usize)> {
+    let named = match kind {
+        LiteralKind::Number => None,
+        LiteralKind::Month => parse_named_literal(input, &MONTH_NAMES),
+        LiteralKind::DayOfWeek => parse_named_literal(input, &WEEKDAY_NAMES),
+    };
+    if let Some((value, len)) = named {
+        return Ok((value, len));
+    }
+
+    let (value, len) = parse_decimal(input, offset)?;
+    if value > u8::MAX as u64 || !context.range().contains(&(value as u8)) {
+        return Err(ParseFailure::custom(
+            offset,
+            format!(
+                "value must be in range {:?}; found {value}",
+                context.range()
+            ),
+        ));
+    }
+    Ok((value as u8, len))
+}
+
+fn parse_decimal(input: &str, offset: usize) -> ParseResult<(u64, usize)> {
+    let len = input
+        .as_bytes()
+        .iter()
+        .take_while(|byte| byte.is_ascii_digit())
+        .count();
+    if len == 0 {
+        return Err(ParseFailure::malformed(offset));
+    }
+
+    let mut value = 0_u64;
+    for byte in &input.as_bytes()[..len] {
+        value = value
+            .checked_mul(10)
+            .and_then(|value| value.checked_add(u64::from(byte - b'0')))
+            .ok_or_else(|| ParseFailure::malformed(offset))?;
+    }
+    Ok((value, len))
+}
+
+fn parse_named_literal(input: &str, names: &[(&[u8; 3], u8)]) -> Option<(u8, usize)> {
+    let prefix = input.as_bytes().get(..3)?;
+    names
+        .iter()
+        .find(|(name, _)| prefix.eq_ignore_ascii_case(name.as_slice()))
+        .map(|(_, value)| (*value, 3))
+}
+
+fn into_literals(values: Vec<u8>, normalize: fn(u8) -> u8) -> Vec<PossibleValue> {
+    values
+        .into_iter()
+        .map(normalize)
+        .map(PossibleValue::Literal)
+        .collect()
+}
+
+fn identity(value: u8) -> u8 {
+    value
+}
+
+fn norm_sunday(value: u8) -> u8 {
+    if value == 0 { 7 } else { value }
+}
+
+fn make_weekday(value: u8) -> Weekday {
+    let weekday = norm_sunday(value) as i8;
+    Weekday::from_monday_one_offset(weekday)
+        .unwrap_or_else(|err| panic!("{weekday} must be in range 1..=7: {err:?}"))
+}
+
+const MONTH_NAMES: [(&[u8; 3], u8); 12] = [
+    (b"JAN", 1),
+    (b"FEB", 2),
+    (b"MAR", 3),
+    (b"APR", 4),
+    (b"MAY", 5),
+    (b"JUN", 6),
+    (b"JUL", 7),
+    (b"AUG", 8),
+    (b"SEP", 9),
+    (b"OCT", 10),
+    (b"NOV", 11),
+    (b"DEC", 12),
+];
+
+const WEEKDAY_NAMES: [(&[u8; 3], u8); 7] = [
+    (b"SUN", 0),
+    (b"MON", 1),
+    (b"TUE", 2),
+    (b"WED", 3),
+    (b"THU", 4),
+    (b"FRI", 5),
+    (b"SAT", 6),
+];
 
 fn map_hash_into_range(hashed_value: u64, range: RangeInclusive<u8>) -> u8 {
     let modulo = range.end() - range.start() + 1;
     let hashed_value = hashed_value % modulo as u64;
     (range.start() + hashed_value as u8).min(*range.end())
 }
-
-trait ModalParserExt<I, O, E>: ModalParser<I, O, E> {
-    #[inline(always)]
-    fn try_map_cut<G, O2, E2>(self, map: G) -> TryMapCut<Self, G, I, O, O2, E, E2>
-    where
-        Self: Sized,
-        G: FnMut(O) -> Result<O2, E2>,
-        I: Stream,
-        E: FromExternalError<I, E2>,
-    {
-        TryMapCut {
-            parser: self,
-            map,
-            i: Default::default(),
-            o: Default::default(),
-            o2: Default::default(),
-            e: Default::default(),
-            e2: Default::default(),
-        }
-    }
-}
-
-struct TryMapCut<F, G, I, O, O2, E, E2>
-where
-    F: ModalParser<I, O, E>,
-    G: FnMut(O) -> Result<O2, E2>,
-    I: Stream,
-    E: FromExternalError<I, E2>,
-{
-    parser: F,
-    map: G,
-    i: core::marker::PhantomData<I>,
-    o: core::marker::PhantomData<O>,
-    o2: core::marker::PhantomData<O2>,
-    e: core::marker::PhantomData<E>,
-    e2: core::marker::PhantomData<E2>,
-}
-
-impl<F, G, I, O, O2, E, E2> Parser<I, O2, ErrMode<E>> for TryMapCut<F, G, I, O, O2, E, E2>
-where
-    F: ModalParser<I, O, E>,
-    G: FnMut(O) -> Result<O2, E2>,
-    I: Stream,
-    E: FromExternalError<I, E2>,
-{
-    #[inline]
-    fn parse_next(&mut self, input: &mut I) -> ModalResult<O2, E> {
-        let start = input.checkpoint();
-        let o = self.parser.parse_next(input)?;
-
-        (self.map)(o).map_err(|err| {
-            input.reset(&start);
-            ErrMode::from_external_error(input, err).cut()
-        })
-    }
-}
-
-impl<I, O, E, P> ModalParserExt<I, O, E> for P where P: ModalParser<I, O, E> {}
 
 #[cfg(test)]
 mod tests {
@@ -770,7 +812,6 @@ mod tests {
         assert_debug_snapshot!(parse_crontab("1,2,10 1 1 1 * Asia/Shanghai").unwrap());
         assert_debug_snapshot!(parse_crontab("1-10,2,10,50 1 1 1 * Asia/Shanghai").unwrap());
         assert_debug_snapshot!(parse_crontab("1-10,2,10,50 1 * 1 TUE Asia/Shanghai").unwrap());
-
         // optional timezone
         let options = ParseOptions {
             fallback_timezone_option: FallbackTimezoneOption::UTC,
@@ -801,6 +842,10 @@ mod tests {
         assert_debug_snapshot!(parse_crontab("0 0 1 1 5 +08:00").unwrap());
         assert_debug_snapshot!(parse_crontab("0 0 1 1 5 +00:00").unwrap());
         assert_debug_snapshot!(parse_crontab("0 0 1 1 5 -08:00").unwrap());
+        assert_debug_snapshot!(parse_crontab("0 0 L,15W JAN-MAR/2 MON-FRI UTC").unwrap());
+
+        // Keep numeric and named literals aligned with common cron syntax and the crate docs.
+        assert_debug_snapshot!(parse_crontab("00 04 01 Jan-Mar/02 Mon-Fri UTC").unwrap());
     }
 
     #[test]
@@ -840,6 +885,20 @@ mod tests {
         assert_snapshot!(parse_crontab("0 0 1 1 5 +26:00").unwrap_err());
         assert_snapshot!(parse_crontab("0 0 1 1 5 +Ch:Ch").unwrap_err());
         assert_snapshot!(parse_crontab("0 0 1 1 5 -08:75").unwrap_err());
+
+        // parser boundary behavior
+        assert_snapshot!(parse_crontab("*/0 * * * * UTC").unwrap_err());
+        assert_snapshot!(parse_crontab("*/60 * * * * UTC").unwrap_err());
+        assert_snapshot!(parse_crontab("0,,1 * * * * UTC").unwrap_err());
+        assert_snapshot!(parse_crontab("0, * * * * UTC").unwrap_err());
+        assert_snapshot!(parse_crontab("0 0 32W * * UTC").unwrap_err());
+        assert_snapshot!(parse_crontab("0 0 * * 5#6 UTC").unwrap_err());
+        assert_snapshot!(parse_crontab("0 0 L/2 * * UTC").unwrap_err());
+        assert_snapshot!(parse_crontab("0 0 * JAN-FOO * UTC").unwrap_err());
+        assert_snapshot!(parse_crontab("0 0 * * MON# UTC").unwrap_err());
+        assert_snapshot!(parse_crontab("18446744073709551616 * * * * UTC").unwrap_err());
+        assert_snapshot!(parse_crontab("0,1- * * * * UTC").unwrap_err());
+        assert_snapshot!(parse_crontab("0,H * * * * UTC").unwrap_err());
     }
 
     #[test]

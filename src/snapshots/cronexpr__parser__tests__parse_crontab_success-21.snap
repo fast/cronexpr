@@ -1,0 +1,45 @@
+---
+source: src/parser.rs
+expression: "parse_crontab(\"0 0 L,15W JAN-MAR/2 MON-FRI UTC\").unwrap()"
+---
+Crontab {
+    minutes: PossibleLiterals {
+        values: {
+            0,
+        },
+    },
+    hours: PossibleLiterals {
+        values: {
+            0,
+        },
+    },
+    months: PossibleLiterals {
+        values: {
+            1,
+            3,
+        },
+    },
+    days_of_month: ParsedDaysOfMonth {
+        literals: {},
+        last_day_of_month: true,
+        nearest_weekdays: {
+            15,
+        },
+        start_with_asterisk: false,
+    },
+    days_of_week: ParsedDaysOfWeek {
+        literals: {
+            1,
+            2,
+            3,
+            4,
+            5,
+        },
+        last_days_of_week: {},
+        nth_days_of_week: {},
+        start_with_asterisk: false,
+    },
+    timezone: TimeZone(
+        UTC,
+    ),
+}

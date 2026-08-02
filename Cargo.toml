@@ -30,7 +30,6 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
 jiff = { version = "0.2.35" }
-winnow = { version = "1.0.4" }
 
 [dev-dependencies]
 insta = { version = "1.48.0", features = ["filters"] }
