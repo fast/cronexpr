@@ -32,4 +32,9 @@ rustdoc-args = ["--cfg", "docsrs"]
 jiff = { version = "0.2.35" }
 
 [dev-dependencies]
+divan = { version = "0.1.21" }
 insta = { version = "1.48.0", features = ["filters"] }
+
+[[bench]]
+name = "parser"
+harness = false
