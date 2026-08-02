@@ -29,8 +29,12 @@ all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
-jiff = { version = "0.2.24" }
-winnow = { version = "1.0.2" }
+jiff = { version = "0.2.35" }
 
 [dev-dependencies]
-insta = { version = "1.44.3", features = ["filters"] }
+divan = { version = "0.1.21" }
+insta = { version = "1.48.0", features = ["filters"] }
+
+[[bench]]
+harness = false
+name = "parser"

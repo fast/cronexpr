@@ -1,0 +1,7 @@
+---
+source: src/parser.rs
+expression: "parse_crontab(\"*/0 * * * * UTC\").unwrap_err()"
+---
+failed to parse crontab expression:
+*/0 * * * * UTC
+^ step must be greater than 0

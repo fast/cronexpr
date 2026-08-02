@@ -110,7 +110,6 @@ If you are using `cronexpr` in your project, please feel free to open a PR to ad
 * [jiff](https://docs.rs/jiff/) for all the datetime things. This is almost internal, except:
   * The timestamp returned is a `jiff::Zoned`, although you can treat it as something defined by `cronexpr`.
   * The input type `MakeTimestamp` is a wrapper of `jiff::Timestamp`, but it's defined by `cronexpr` and enables you create a Timestamp from a string, milliseconds, nanoseconds, and more, without directly depend on `jiff::Timestamp` (you can still depend on it if you'd like).
-* [winnow](https://docs.rs/winnow/) for parsing the crontab expression. This is fully internal: you don't need to understand it.
 
 ## Minimum Rust version policy
 
