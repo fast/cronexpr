@@ -899,6 +899,10 @@ mod tests {
         assert_snapshot!(parse_crontab("18446744073709551616 * * * * UTC").unwrap_err());
         assert_snapshot!(parse_crontab("0,1- * * * * UTC").unwrap_err());
         assert_snapshot!(parse_crontab("0,H * * * * UTC").unwrap_err());
+
+        // Diagnostics after consuming syntax accepted by the intentional compatibility fixes.
+        assert_snapshot!(parse_crontab("060 * * * * UTC").unwrap_err());
+        assert_snapshot!(parse_crontab("0 0 1 JanX * UTC").unwrap_err());
     }
 
     #[test]
