@@ -16,11 +16,94 @@ use std::fmt;
 
 /// An error that can occur in this crate.
 #[derive(Debug, Clone)]
-pub struct Error(pub(crate) String);
+pub struct Error(ErrorKind);
+
+#[derive(Debug, Clone)]
+enum ErrorKind {
+    Message(String),
+    Parse(ParseError),
+}
+
+#[derive(Debug, Clone)]
+struct ParseError {
+    input: String,
+    offset: usize,
+    reason: ParseErrorReason,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) enum ParseErrorReason {
+    Message(&'static str),
+    UnknownTimezone,
+    RangeNotAscending {
+        start: u8,
+        end: u8,
+    },
+    OutOfRange {
+        subject: &'static str,
+        min: u8,
+        max: u8,
+        value: u64,
+    },
+}
+
+impl Error {
+    pub(crate) fn message(message: impl Into<String>) -> Self {
+        Self(ErrorKind::Message(message.into()))
+    }
+
+    pub(crate) fn parse(input: &str, offset: usize, reason: ParseErrorReason) -> Self {
+        Self(ErrorKind::Parse(ParseError {
+            input: input.to_owned(),
+            offset,
+            reason,
+        }))
+    }
+}
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
+        match &self.0 {
+            ErrorKind::Message(message) => f.write_str(message),
+            ErrorKind::Parse(error) => error.fmt(f),
+        }
+    }
+}
+
+impl fmt::Display for ParseError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let Self {
+            input,
+            offset,
+            reason,
+        } = self;
+
+        write!(
+            f,
+            "failed to parse crontab expression:\n{}\n{:offset$}^ ",
+            input, ""
+        )?;
+        match reason {
+            ParseErrorReason::Message(message) => f.write_str(message),
+            ParseErrorReason::UnknownTimezone => write!(
+                f,
+                "failed to find timezone {}; \
+                for a list of time zones, see the list of tz database time zones on Wikipedia: \
+                https://en.wikipedia.org/wiki/List_of_tz_database_time_zones#List",
+                &input[*offset..]
+            ),
+            ParseErrorReason::RangeNotAscending { start, end } => {
+                write!(f, "range must be in ascending order; found {start}-{end}")
+            }
+            ParseErrorReason::OutOfRange {
+                subject,
+                min,
+                max,
+                value,
+            } => {
+                write!(f, "{subject} must be in range {min}..={max}; found {value}")
+            }
+        }
     }
 }
 
