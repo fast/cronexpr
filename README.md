@@ -90,6 +90,15 @@ fn main() {
 
 `cronexpr` is [on crates.io](https://crates.io/crates/cronexpr) and can be used by adding `cronexpr` to your dependencies in your project's `Cargo.toml`. Or more simply, just run `cargo add cronexpr`.
 
+## Benchmarks
+
+The repository contains two Divan benchmark targets:
+
+* `cargo bench --bench parser` measures cronexpr parsing across successful, failed, timezone, and extension cases.
+* `cargo bench --bench compare` compares parsing throughput with [cronp](https://crates.io/crates/cronp) using its Vixie dialect, [saffron](https://crates.io/crates/saffron), and [croner](https://crates.io/crates/croner).
+
+The competitive benchmark uses only five-field expressions accepted by every participant. It measures parsing text into a complete schedule and dropping that schedule inside the timed region; it does not include matching or next-occurrence calculation. For a like-for-like input, cronexpr uses a constant UTC fallback and does not scan or resolve a timezone. Successful parses and rejected input are reported in separate groups. The benchmark profile enables thin LTO with one code generation unit for every participant.
+
 ## Who is using `cronexpr`?
 
 The original purpose of this library is to be used in the internal `CREATE JOB` statement in ScopeDB, whose syntax looks like this:
