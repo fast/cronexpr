@@ -466,13 +466,14 @@
 //! For `#` indicates comments, this crate doesn't support comments. It's too random for a library.
 
 mod crontab;
+mod error;
 mod literal_set;
 mod parser;
 
 pub use crontab::CronTimesIter;
 pub use crontab::Crontab;
-pub use crontab::Error;
 pub use crontab::MakeTimestamp;
+pub use error::Error;
 pub use parser::FallbackTimezoneOption;
 pub use parser::ParseOptions;
 pub use parser::normalize_crontab;

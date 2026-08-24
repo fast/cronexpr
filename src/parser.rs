@@ -21,10 +21,10 @@ use jiff::civil::Weekday;
 use jiff::fmt::temporal::DateTimeParser;
 
 use crate::crontab::Crontab;
-use crate::crontab::Error;
 use crate::crontab::ParsedDaysOfMonth;
 use crate::crontab::ParsedDaysOfWeek;
 use crate::crontab::PossibleLiterals;
+use crate::error::Error;
 use crate::literal_set::LiteralSet;
 
 /// Determine the timezone to fallback when the timezone part is missing.
