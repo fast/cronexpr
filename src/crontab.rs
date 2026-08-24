@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::HashSet;
 use std::str::FromStr;
 
 use jiff::RoundMode;
@@ -56,9 +55,11 @@ pub struct ParsedDaysOfWeek {
     /// Literal weekdays accepted by this field.
     pub(crate) literals: LiteralSet,
     /// Weekdays selected by the `<weekday>L` extension.
-    pub(crate) last_days_of_week: HashSet<Weekday>,
+    pub(crate) last_days_of_week: LiteralSet,
     /// Ordinal weekdays selected by the `<weekday>#<nth>` extension.
-    pub(crate) nth_days_of_week: HashSet<(u8, Weekday)>,
+    ///
+    /// Each pair occupies the bit returned by [`encode_nth_weekday`].
+    pub(crate) nth_days_of_week: LiteralSet,
 
     // to implement Vixie's cron behavior
     // ref - https://crontab.guru/cron-bug.html
@@ -67,34 +68,33 @@ pub struct ParsedDaysOfWeek {
 
 impl ParsedDaysOfWeek {
     fn matches(&self, value: &Zoned) -> bool {
-        if self.literals.contains(value.weekday() as u8) {
+        let weekday = value.weekday();
+        if self.literals.contains(weekday as u8) {
             return true;
         }
 
-        for weekday in self.last_days_of_week.iter() {
-            if value.weekday() != *weekday {
-                continue;
-            }
-
-            if (value + 1.week()).month() > value.month() {
-                return true;
-            }
+        if self.last_days_of_week.contains(weekday as u8)
+            && (value + 1.week()).month() > value.month()
+        {
+            return true;
         }
 
-        for (nth, weekday) in self.nth_days_of_week.iter() {
-            if value.weekday() != *weekday {
-                continue;
-            }
-
-            if let Ok(nth_weekday) = value.nth_weekday_of_month(*nth as i8, *weekday)
-                && nth_weekday.date() == value.date()
-            {
-                return true;
-            }
+        let nth = ((value.day() - 1) / 7 + 1) as u8;
+        if self
+            .nth_days_of_week
+            .contains(encode_nth_weekday(nth, weekday))
+        {
+            return true;
         }
 
         false
     }
+}
+
+/// Map the 5 possible ordinals and 7 weekdays into the 35 bits starting at zero.
+pub(crate) fn encode_nth_weekday(nth: u8, weekday: Weekday) -> u8 {
+    debug_assert!((1..=5).contains(&nth));
+    (nth - 1) * 7 + weekday as u8 - 1
 }
 
 #[derive(Debug, Clone)]

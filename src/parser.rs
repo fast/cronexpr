@@ -13,7 +13,6 @@
 // limitations under the License.
 
 use std::borrow::Cow;
-use std::collections::HashSet;
 use std::ops::RangeInclusive;
 use std::str::FromStr;
 
@@ -24,6 +23,7 @@ use crate::crontab::Crontab;
 use crate::crontab::ParsedDaysOfMonth;
 use crate::crontab::ParsedDaysOfWeek;
 use crate::crontab::PossibleLiterals;
+use crate::crontab::encode_nth_weekday;
 use crate::error::Error;
 use crate::literal_set::LiteralSet;
 
@@ -413,16 +413,16 @@ fn parse_days_of_week(input: &str, options: ParseOptions) -> ParseResult<ParsedD
     };
     let start_with_asterisk = input.starts_with('*');
     let mut literals = LiteralSet::default();
-    let mut last_days_of_week = HashSet::new();
-    let mut nth_days_of_week = HashSet::new();
+    let mut last_days_of_week = LiteralSet::default();
+    let mut nth_days_of_week = LiteralSet::default();
     parse_list(input, |item, offset| {
         parse_day_of_week_item(item, offset, context, &mut literals, &mut |extension| {
             match extension {
                 DayOfWeekExtension::LastDay(weekday) => {
-                    last_days_of_week.insert(weekday);
+                    last_days_of_week.insert(weekday as u8);
                 }
                 DayOfWeekExtension::NthDay(nth, weekday) => {
-                    nth_days_of_week.insert((nth, weekday));
+                    nth_days_of_week.insert(encode_nth_weekday(nth, weekday));
                 }
             }
         })
