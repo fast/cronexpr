@@ -20,10 +20,9 @@ pub struct Error(ErrorKind);
 
 #[derive(Debug, Clone)]
 enum ErrorKind {
-    Message(String),
-    WithSource {
+    Message {
         message: String,
-        source: SourceError,
+        source: Option<SourceError>,
     },
     Parse(ParseError),
 }
@@ -56,13 +55,16 @@ pub(crate) enum ParseErrorReason {
 
 impl Error {
     pub(crate) fn message(message: impl Into<String>) -> Self {
-        Self(ErrorKind::Message(message.into()))
+        Self(ErrorKind::Message {
+            message: message.into(),
+            source: None,
+        })
     }
 
     pub(crate) fn with_source(message: impl Into<String>, source: impl std::error::Error) -> Self {
-        Self(ErrorKind::WithSource {
+        Self(ErrorKind::Message {
             message: message.into(),
-            source: SourceError(source.to_string()),
+            source: Some(SourceError(source.to_string())),
         })
     }
 
@@ -78,8 +80,10 @@ impl Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.0 {
-            ErrorKind::Message(message) => f.write_str(message),
-            ErrorKind::WithSource { message, source } => write!(f, "{message}: {source}"),
+            ErrorKind::Message { message, source } => match source {
+                Some(source) => write!(f, "{message}: {source}"),
+                None => f.write_str(message),
+            },
             ErrorKind::Parse(error) => error.fmt(f),
         }
     }
@@ -137,8 +141,11 @@ impl fmt::Debug for Error {
 impl std::error::Error for Error {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match &self.0 {
-            ErrorKind::WithSource { source, .. } => Some(source),
-            ErrorKind::Message(_) | ErrorKind::Parse(_) => None,
+            ErrorKind::Message {
+                source: Some(source),
+                ..
+            } => Some(source),
+            ErrorKind::Message { source: None, .. } | ErrorKind::Parse(_) => None,
         }
     }
 }
