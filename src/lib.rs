@@ -465,7 +465,6 @@
 //!
 //! For `#` indicates comments, this crate doesn't support comments. It's too random for a library.
 
-use std::collections::BTreeSet;
 use std::collections::HashSet;
 use std::fmt;
 use std::str::FromStr;
@@ -548,22 +547,46 @@ enum PossibleValue {
     NthDayOfWeek(u8, Weekday),
 }
 
+/// A compact set for cron field values, whose largest valid value is 59.
+#[derive(Clone, Copy, Default)]
+struct LiteralSet(u64);
+
+impl LiteralSet {
+    fn insert(&mut self, value: u8) {
+        self.0 |= 1_u64 << value;
+    }
+
+    fn contains(&self, value: u8) -> bool {
+        self.0 & (1_u64 << value) != 0
+    }
+
+    fn iter(&self) -> impl Iterator<Item = u8> + '_ {
+        (0..u64::BITS as u8).filter(|value| self.contains(*value))
+    }
+}
+
+impl fmt::Debug for LiteralSet {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_set().entries(self.iter()).finish()
+    }
+}
+
 /// @see [PossibleValue::Literal]
 #[derive(Debug, Clone)]
 struct PossibleLiterals {
-    values: BTreeSet<u8>,
+    values: LiteralSet,
 }
 
 impl PossibleLiterals {
     fn matches(&self, value: u8) -> bool {
-        self.values.contains(&value)
+        self.values.contains(value)
     }
 }
 
 #[derive(Debug, Clone)]
 struct ParsedDaysOfWeek {
     /// @see [PossibleValue::Literal]
-    literals: BTreeSet<u8>,
+    literals: LiteralSet,
     /// @see [PossibleValue::LastDayOfWeek]
     last_days_of_week: HashSet<Weekday>,
     /// @see [PossibleValue::NthDayOfWeek]
@@ -576,7 +599,7 @@ struct ParsedDaysOfWeek {
 
 impl ParsedDaysOfWeek {
     fn matches(&self, value: &Zoned) -> bool {
-        if self.literals.contains(&(value.weekday() as u8)) {
+        if self.literals.contains(value.weekday() as u8) {
             return true;
         }
 
@@ -609,11 +632,11 @@ impl ParsedDaysOfWeek {
 #[derive(Debug, Clone)]
 struct ParsedDaysOfMonth {
     /// @see [PossibleValue::Literal]
-    literals: BTreeSet<u8>,
+    literals: LiteralSet,
     /// @see [PossibleValue::LastDayOfMonth]
     last_day_of_month: bool,
     /// @see [PossibleValue::NearestWeekday]
-    nearest_weekdays: BTreeSet<u8>,
+    nearest_weekdays: LiteralSet,
 
     // to implement Vixie's cron behavior
     // ref - https://crontab.guru/cron-bug.html
@@ -622,7 +645,7 @@ struct ParsedDaysOfMonth {
 
 impl ParsedDaysOfMonth {
     fn matches(&self, value: &Zoned) -> bool {
-        if self.literals.contains(&(value.day() as u8)) {
+        if self.literals.contains(value.day() as u8) {
             return true;
         }
 
@@ -631,7 +654,7 @@ impl ParsedDaysOfMonth {
         }
 
         for day in self.nearest_weekdays.iter() {
-            let day = *day as i8;
+            let day = day as i8;
 
             match value.weekday() {
                 // 'nearest weekday' matcher can never match weekends
