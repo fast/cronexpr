@@ -27,7 +27,6 @@ use jiff::civil::Weekday;
 use jiff::tz::TimeZone;
 
 use crate::literal_set::LiteralSet;
-use crate::parser::parse_crontab;
 
 /// An error that can occur in this crate.
 #[derive(Debug, Clone)]
@@ -52,38 +51,6 @@ pub struct Crontab {
     pub(crate) timezone: TimeZone,
 }
 
-#[derive(Debug)]
-pub enum PossibleValue {
-    /// Parsed from `<day>W` in day-of-month field.
-    ///
-    /// The `W` character is allowed for the day-of-month field. This character is used to specify
-    /// the weekday (Monday-Friday) nearest the given day. As an example, if "15W" is specified as
-    /// the value for the day-of-month field, the meaning is: "the nearest weekday to the 15th of
-    /// the month." So, if the 15th is a Saturday, the trigger fires on Friday the 14th. If the
-    /// 15th is a Sunday, the trigger fires on Monday the 16th. If the 15th is a Tuesday, then it
-    /// fires on Tuesday the 15th. However, if "1W" is specified as the value for day-of-month, and
-    /// the 1st is a Saturday, the trigger fires on Monday the 3rd, as it does not 'jump' over the
-    /// boundary of a month's days.
-    NearestWeekday(u8),
-    /// Parsed from '<day>L' in day-of-month field.
-    ///
-    /// 'L' stands for "last". When used in the day-of-month field, it specifies the last day of
-    /// the month.
-    LastDayOfMonth,
-    /// Parsed from `<weekday>L` in day-of-week field.
-    ///
-    /// `L` stands for "last". When used in the day-of-week field, it allows specifying constructs
-    /// such as "the last Friday" (`5L`) of a given month.
-    LastDayOfWeek(Weekday),
-    /// Parsed from `<weekday>#<nth>` in day-of-week field.
-    ///
-    /// `#` is allowed for the day-of-week field, and must be followed by a number between one and
-    /// five. It allows specifying constructs such as "the second Friday" of a given month. For
-    /// example, entering `5#3` in the day-of-week field corresponds to the third Friday of every
-    /// month.
-    NthDayOfWeek(u8, Weekday),
-}
-
 /// Literal values accepted by a cron field.
 #[derive(Debug, Clone)]
 pub struct PossibleLiterals {
@@ -100,9 +67,9 @@ impl PossibleLiterals {
 pub struct ParsedDaysOfWeek {
     /// Literal weekdays accepted by this field.
     pub(crate) literals: LiteralSet,
-    /// @see [PossibleValue::LastDayOfWeek]
+    /// Weekdays selected by the `<weekday>L` extension.
     pub(crate) last_days_of_week: HashSet<Weekday>,
-    /// @see [PossibleValue::NthDayOfWeek]
+    /// Ordinal weekdays selected by the `<weekday>#<nth>` extension.
     pub(crate) nth_days_of_week: HashSet<(u8, Weekday)>,
 
     // to implement Vixie's cron behavior
@@ -146,9 +113,9 @@ impl ParsedDaysOfWeek {
 pub struct ParsedDaysOfMonth {
     /// Literal days accepted by this field.
     pub(crate) literals: LiteralSet,
-    /// @see [PossibleValue::LastDayOfMonth]
+    /// Whether the `L` extension is present.
     pub(crate) last_day_of_month: bool,
-    /// @see [PossibleValue::NearestWeekday]
+    /// Days selected by the `<day>W` extension.
     pub(crate) nearest_weekdays: LiteralSet,
 
     // to implement Vixie's cron behavior
@@ -219,22 +186,6 @@ impl ParsedDaysOfMonth {
         }
 
         false
-    }
-}
-
-impl FromStr for Crontab {
-    type Err = Error;
-
-    fn from_str(input: &str) -> Result<Self, Self::Err> {
-        parse_crontab(input)
-    }
-}
-
-impl<'a> TryFrom<&'a str> for Crontab {
-    type Error = Error;
-
-    fn try_from(input: &'a str) -> Result<Self, Self::Error> {
-        FromStr::from_str(input)
     }
 }
 

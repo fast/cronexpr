@@ -15,6 +15,7 @@
 use std::borrow::Cow;
 use std::collections::HashSet;
 use std::ops::RangeInclusive;
+use std::str::FromStr;
 
 use jiff::civil::Weekday;
 use jiff::fmt::temporal::DateTimeParser;
@@ -24,7 +25,6 @@ use crate::crontab::Error;
 use crate::crontab::ParsedDaysOfMonth;
 use crate::crontab::ParsedDaysOfWeek;
 use crate::crontab::PossibleLiterals;
-use crate::crontab::PossibleValue;
 use crate::literal_set::LiteralSet;
 
 /// Determine the timezone to fallback when the timezone part is missing.
@@ -168,6 +168,16 @@ impl LiteralNormalization {
     }
 }
 
+enum DayOfMonthExtension {
+    LastDay,
+    NearestWeekday(u8),
+}
+
+enum DayOfWeekExtension {
+    LastDay(Weekday),
+    NthDay(u8, Weekday),
+}
+
 /// Normalize a crontab expression to compact form.
 ///
 /// ```rust
@@ -306,6 +316,22 @@ pub fn parse_crontab(input: &str) -> Result<Crontab, Error> {
     parse_crontab_with(input, ParseOptions::default())
 }
 
+impl FromStr for Crontab {
+    type Err = Error;
+
+    fn from_str(input: &str) -> Result<Self, Self::Err> {
+        parse_crontab(input)
+    }
+}
+
+impl<'a> TryFrom<&'a str> for Crontab {
+    type Error = Error;
+
+    fn try_from(input: &'a str) -> Result<Self, Self::Error> {
+        FromStr::from_str(input)
+    }
+}
+
 fn format_error(input: &str, indent: &str, reason: &str) -> Error {
     let context = "failed to parse crontab expression";
     Error(format!("{context}:\n{input}\n{indent}^ {reason}"))
@@ -390,21 +416,16 @@ fn parse_days_of_week(input: &str, options: ParseOptions) -> ParseResult<ParsedD
     let mut last_days_of_week = HashSet::new();
     let mut nth_days_of_week = HashSet::new();
     parse_list(input, |item, offset| {
-        parse_day_of_week_item(
-            item,
-            offset,
-            context,
-            &mut literals,
-            &mut |value| match value {
-                PossibleValue::LastDayOfWeek(weekday) => {
+        parse_day_of_week_item(item, offset, context, &mut literals, &mut |extension| {
+            match extension {
+                DayOfWeekExtension::LastDay(weekday) => {
                     last_days_of_week.insert(weekday);
                 }
-                PossibleValue::NthDayOfWeek(nth, weekday) => {
+                DayOfWeekExtension::NthDay(nth, weekday) => {
                     nth_days_of_week.insert((nth, weekday));
                 }
-                _ => unreachable!("unexpected value: {value:?}"),
-            },
-        )
+            }
+        })
     })?;
     Ok(ParsedDaysOfWeek {
         literals,
@@ -426,17 +447,12 @@ fn parse_days_of_month(input: &str, options: ParseOptions) -> ParseResult<Parsed
     let mut last_day_of_month = false;
     let mut nearest_weekdays = LiteralSet::default();
     parse_list(input, |item, offset| {
-        parse_day_of_month_item(
-            item,
-            offset,
-            context,
-            &mut literals,
-            &mut |value| match value {
-                PossibleValue::LastDayOfMonth => last_day_of_month = true,
-                PossibleValue::NearestWeekday(day) => nearest_weekdays.insert(day),
-                _ => unreachable!("unexpected value: {value:?}"),
-            },
-        )
+        parse_day_of_month_item(item, offset, context, &mut literals, &mut |extension| {
+            match extension {
+                DayOfMonthExtension::LastDay => last_day_of_month = true,
+                DayOfMonthExtension::NearestWeekday(day) => nearest_weekdays.insert(day),
+            }
+        })
     })?;
     Ok(ParsedDaysOfMonth {
         literals,
@@ -544,7 +560,7 @@ fn parse_day_of_month_item(
     offset: usize,
     context: ParseContext,
     literals: &mut LiteralSet,
-    emit: &mut impl FnMut(PossibleValue),
+    emit: &mut impl FnMut(DayOfMonthExtension),
 ) -> ParseResult<()> {
     match input.as_bytes().first() {
         Some(b'*') => {
@@ -555,7 +571,7 @@ fn parse_day_of_month_item(
         }
         Some(b'L') => {
             return if input.len() == 1 {
-                emit(PossibleValue::LastDayOfMonth);
+                emit(DayOfMonthExtension::LastDay);
                 Ok(())
             } else {
                 Err(ParseFailure::malformed(offset + 1))
@@ -581,7 +597,7 @@ fn parse_day_of_month_item(
         ),
         b'/' => parse_step_item(input, offset, context, end, day..=context.max, literals),
         b'W' if end + 1 == input.len() => {
-            emit(PossibleValue::NearestWeekday(day));
+            emit(DayOfMonthExtension::NearestWeekday(day));
             Ok(())
         }
         b'W' => Err(ParseFailure::malformed(offset + end + 1)),
@@ -594,7 +610,7 @@ fn parse_day_of_week_item(
     offset: usize,
     context: ParseContext,
     literals: &mut LiteralSet,
-    emit: &mut impl FnMut(PossibleValue),
+    emit: &mut impl FnMut(DayOfWeekExtension),
 ) -> ParseResult<()> {
     match input.as_bytes().first() {
         Some(b'*') => {
@@ -623,7 +639,7 @@ fn parse_day_of_week_item(
         ),
         b'/' => parse_step_item(input, offset, context, end, day..=context.max, literals),
         b'L' if end + 1 == input.len() => {
-            emit(PossibleValue::LastDayOfWeek(make_weekday(day)));
+            emit(DayOfWeekExtension::LastDay(make_weekday(day)));
             Ok(())
         }
         b'L' => Err(ParseFailure::malformed(offset + end + 1)),
@@ -651,7 +667,7 @@ fn parse_day_of_week_item(
             if nth_end != input.len() {
                 return Err(ParseFailure::malformed(offset + nth_end));
             }
-            emit(PossibleValue::NthDayOfWeek(nth, make_weekday(day)));
+            emit(DayOfWeekExtension::NthDay(nth, make_weekday(day)));
             Ok(())
         }
         _ => Err(ParseFailure::malformed(offset + end)),
@@ -731,7 +747,7 @@ fn parse_step_item(
     offset: usize,
     context: ParseContext,
     slash: usize,
-    candidates: RangeInclusive<u8>,
+    range: RangeInclusive<u8>,
     literals: &mut LiteralSet,
 ) -> ParseResult<()> {
     let step_start = slash + 1;
@@ -754,7 +770,7 @@ fn parse_step_item(
     if end != input.len() {
         return Err(ParseFailure::malformed(offset + end));
     }
-    context.insert_step(literals, candidates, step as u8);
+    context.insert_step(literals, range, step as u8);
     Ok(())
 }
 
