@@ -297,7 +297,7 @@ impl FromStr for MakeTimestamp {
     fn from_str(input: &str) -> Result<Self, Self::Err> {
         Timestamp::from_str(input)
             .map(MakeTimestamp)
-            .map_err(|error| Error::with_source("failed to parse timestamp", error))
+            .map_err(|error| Error::message(format!("failed to parse timestamp: {error}")))
     }
 }
 
@@ -313,25 +313,25 @@ impl MakeTimestamp {
     pub fn from_second(second: i64) -> Result<Self, Error> {
         Timestamp::from_second(second)
             .map(MakeTimestamp)
-            .map_err(|error| Error::with_source("failed to make timestamp", error))
+            .map_err(|error| Error::message(format!("failed to make timestamp: {error}")))
     }
 
     pub fn from_millisecond(millisecond: i64) -> Result<Self, Error> {
         Timestamp::from_millisecond(millisecond)
             .map(MakeTimestamp)
-            .map_err(|error| Error::with_source("failed to make timestamp", error))
+            .map_err(|error| Error::message(format!("failed to make timestamp: {error}")))
     }
 
     pub fn from_microsecond(microsecond: i64) -> Result<Self, Error> {
         Timestamp::from_microsecond(microsecond)
             .map(MakeTimestamp)
-            .map_err(|error| Error::with_source("failed to make timestamp", error))
+            .map_err(|error| Error::message(format!("failed to make timestamp: {error}")))
     }
 
     pub fn from_nanosecond(nanosecond: i128) -> Result<Self, Error> {
         Timestamp::from_nanosecond(nanosecond)
             .map(MakeTimestamp)
-            .map_err(|error| Error::with_source("failed to make timestamp", error))
+            .map_err(|error| Error::message(format!("failed to make timestamp: {error}")))
     }
 }
 
@@ -350,7 +350,7 @@ impl Crontab {
     {
         let start = start
             .try_into()
-            .map_err(|error| Error::with_source("failed to parse start timestamp", error))?;
+            .map_err(|error| Error::message(format!("failed to parse start timestamp: {error}")))?;
 
         Ok(CronTimesIter {
             crontab: self.clone(),
@@ -374,7 +374,7 @@ impl Crontab {
         let zoned = timestamp
             .try_into()
             .map(|ts| ts.0.to_zoned(self.timezone.clone()))
-            .map_err(|error| Error::with_source("failed to parse timestamp", error))?;
+            .map_err(|error| Error::message(format!("failed to parse timestamp: {error}")))?;
 
         // checked at most 4 years to cover the leap year case
         let bound = &zoned + 4.years();
@@ -429,7 +429,7 @@ impl Crontab {
         let zoned = timestamp
             .try_into()
             .map(|ts| ts.0.to_zoned(self.timezone.clone()))
-            .map_err(|error| Error::with_source("failed to parse timestamp", error))?;
+            .map_err(|error| Error::message(format!("failed to parse timestamp: {error}")))?;
 
         Ok(self.matches_or_next(zoned)?.is_ok())
     }
@@ -497,17 +497,18 @@ fn advance_time_and_round(zdt: Zoned, span: Span, unit: Option<Unit>) -> Result<
     let mut next = zdt;
 
     next = next.checked_add(span).map_err(|error| {
-        Error::with_source(
-            format!("failed to advance timestamp; end with {next}"),
-            error,
-        )
+        Error::message(format!(
+            "failed to advance timestamp; end with {next}: {error}"
+        ))
     })?;
 
     if let Some(unit) = unit {
         next = next
             .round(ZonedRound::new().mode(RoundMode::Trunc).smallest(unit))
             .map_err(|error| {
-                Error::with_source(format!("failed to round timestamp; end with {next}"), error)
+                Error::message(format!(
+                    "failed to round timestamp; end with {next}: {error}"
+                ))
             })?;
     }
 

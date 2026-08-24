@@ -15,15 +15,12 @@
 use std::fmt;
 
 /// An error that can occur in this crate.
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct Error(ErrorKind);
 
 #[derive(Debug, Clone)]
 enum ErrorKind {
-    Message {
-        message: String,
-        source: Option<SourceError>,
-    },
+    Message(String),
     Parse(ParseError),
 }
 
@@ -33,9 +30,6 @@ struct ParseError {
     offset: usize,
     reason: ParseErrorReason,
 }
-
-#[derive(Debug, Clone)]
-struct SourceError(String);
 
 #[derive(Debug, Clone)]
 pub(crate) enum ParseErrorReason {
@@ -55,17 +49,7 @@ pub(crate) enum ParseErrorReason {
 
 impl Error {
     pub(crate) fn message(message: impl Into<String>) -> Self {
-        Self(ErrorKind::Message {
-            message: message.into(),
-            source: None,
-        })
-    }
-
-    pub(crate) fn with_source(message: impl Into<String>, source: impl std::error::Error) -> Self {
-        Self(ErrorKind::Message {
-            message: message.into(),
-            source: Some(SourceError(source.to_string())),
-        })
+        Self(ErrorKind::Message(message.into()))
     }
 
     pub(crate) fn parse(input: &str, offset: usize, reason: ParseErrorReason) -> Self {
@@ -80,10 +64,7 @@ impl Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.0 {
-            ErrorKind::Message { message, source } => match source {
-                Some(source) => write!(f, "{message}: {source}"),
-                None => f.write_str(message),
-            },
+            ErrorKind::Message(message) => f.write_str(message),
             ErrorKind::Parse(error) => error.fmt(f),
         }
     }
@@ -126,42 +107,4 @@ impl fmt::Display for ParseError {
     }
 }
 
-impl fmt::Display for SourceError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.0)
-    }
-}
-
-impl fmt::Debug for Error {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Error({:?})", self.to_string())
-    }
-}
-
-impl std::error::Error for Error {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match &self.0 {
-            ErrorKind::Message {
-                source: Some(source),
-                ..
-            } => Some(source),
-            ErrorKind::Message { source: None, .. } | ErrorKind::Parse(_) => None,
-        }
-    }
-}
-
-impl std::error::Error for SourceError {}
-
-#[cfg(test)]
-mod tests {
-    use std::error::Error as _;
-
-    use super::Error;
-
-    #[test]
-    fn preserves_source_error() {
-        let error = Error::with_source("outer", std::io::Error::other("inner"));
-        assert_eq!(error.to_string(), "outer: inner");
-        assert_eq!(error.source().unwrap().to_string(), "inner");
-    }
-}
+impl std::error::Error for Error {}
