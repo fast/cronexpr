@@ -446,6 +446,15 @@ fn parse_days_of_month(input: &str, options: ParseOptions) -> ParseResult<Parsed
     let mut literals = LiteralSet::default();
     let mut last_day_of_month = false;
     let mut nearest_weekdays = LiteralSet::default();
+    if input == "*" {
+        context.insert_range(&mut literals, context.range());
+        return Ok(ParsedDaysOfMonth {
+            literals,
+            last_day_of_month,
+            nearest_weekdays,
+            start_with_asterisk,
+        });
+    }
     parse_list(input, |item, offset| {
         parse_day_of_month_item(item, offset, context, &mut literals, &mut |extension| {
             match extension {
@@ -482,6 +491,10 @@ fn parse_literal_field(
     kind: LiteralKind,
 ) -> ParseResult<PossibleLiterals> {
     let mut literals = LiteralSet::default();
+    if input == "*" {
+        context.insert_range(&mut literals, context.range());
+        return Ok(PossibleLiterals { values: literals });
+    }
     parse_list(input, |item, offset| {
         parse_literal_item(item, offset, context, kind, &mut literals)
     })?;
