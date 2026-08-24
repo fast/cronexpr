@@ -133,21 +133,6 @@ pub fn normalize_crontab(input: &str) -> String {
         .join(" ")
 }
 
-fn is_normalized_crontab(input: &str) -> bool {
-    let mut previous_was_space = true;
-    for byte in input.bytes() {
-        if byte.is_ascii_whitespace() {
-            if byte != b' ' || previous_was_space {
-                return false;
-            }
-            previous_was_space = true;
-        } else {
-            previous_was_space = false;
-        }
-    }
-    !previous_was_space
-}
-
 /// Parse a crontab expression to [`Crontab`]. See [the top-level documentation][crate] for the full
 /// syntax definitions.
 ///
@@ -174,15 +159,18 @@ fn is_normalized_crontab(input: &str) -> bool {
 /// parse_crontab_with("H * * * * UTC", options).unwrap();
 /// ```
 pub fn parse_crontab_with(input: &str, options: ParseOptions) -> Result<Crontab, Error> {
-    // Most expressions are already normalized, so keep the common successful path allocation-free.
-    let normalized = if is_normalized_crontab(input) {
-        Cow::Borrowed(input)
-    } else {
-        Cow::Owned(normalize_crontab(input))
-    };
-    let normalized = normalized.as_ref();
-    if normalized.is_empty() {
-        return Err(format_error(normalized, "", "cannot be empty"));
+    match parse_normalized_crontab(input, options) {
+        Ok(crontab) => Ok(crontab),
+        Err(error) => match normalized_error_input(input) {
+            Cow::Borrowed(_) => Err(error),
+            Cow::Owned(normalized) => parse_normalized_crontab(&normalized, options),
+        },
+    }
+}
+
+fn parse_normalized_crontab(input: &str, options: ParseOptions) -> Result<Crontab, Error> {
+    if input.is_empty() {
+        return Err(format_error(input, "", "cannot be empty"));
     }
 
     fn find_next_part(input: &str, start: usize, next_part: &str) -> Result<usize, Error> {
@@ -197,45 +185,41 @@ pub fn parse_crontab_with(input: &str, options: ParseOptions) -> Result<Crontab,
     }
 
     let minutes_start = 0;
-    let minutes_end = normalized.find(' ').unwrap_or(normalized.len());
-    let minutes = parse_minutes(&normalized[..minutes_end], options)
-        .map_err(|err| format_parse_error(normalized, minutes_start, err))?;
+    let minutes_end = input.find(' ').unwrap_or(input.len());
+    let minutes = parse_minutes(&input[..minutes_end], options)
+        .map_err(|err| format_parse_error(input, minutes_start, err))?;
 
     let hours_start = minutes_end + 1;
-    let hours_end = find_next_part(normalized, hours_start, "hours")?;
-    let hours = parse_hours(&normalized[hours_start..hours_end], options)
-        .map_err(|err| format_parse_error(normalized, hours_start, err))?;
+    let hours_end = find_next_part(input, hours_start, "hours")?;
+    let hours = parse_hours(&input[hours_start..hours_end], options)
+        .map_err(|err| format_parse_error(input, hours_start, err))?;
 
     let days_of_month_start = hours_end + 1;
-    let days_of_month_end = find_next_part(normalized, days_of_month_start, "days of month")?;
+    let days_of_month_end = find_next_part(input, days_of_month_start, "days of month")?;
     let days_of_month =
-        parse_days_of_month(&normalized[days_of_month_start..days_of_month_end], options)
-            .map_err(|err| format_parse_error(normalized, days_of_month_start, err))?;
+        parse_days_of_month(&input[days_of_month_start..days_of_month_end], options)
+            .map_err(|err| format_parse_error(input, days_of_month_start, err))?;
 
     let months_start = days_of_month_end + 1;
-    let months_end = find_next_part(normalized, months_start, "months")?;
-    let months_part = &normalized[months_start..months_end];
-    let months = parse_months(months_part, options)
-        .map_err(|err| format_parse_error(normalized, months_start, err))?;
+    let months_end = find_next_part(input, months_start, "months")?;
+    let months = parse_months(&input[months_start..months_end], options)
+        .map_err(|err| format_parse_error(input, months_start, err))?;
 
     let days_of_week_start = months_end + 1;
-    let days_of_week_end = find_next_part(normalized, days_of_week_start, "days of week")?;
-    let days_of_week =
-        parse_days_of_week(&normalized[days_of_week_start..days_of_week_end], options)
-            .map_err(|err| format_parse_error(normalized, days_of_week_start, err))?;
+    let days_of_week_end = find_next_part(input, days_of_week_start, "days of week")?;
+    let days_of_week = parse_days_of_week(&input[days_of_week_start..days_of_week_end], options)
+        .map_err(|err| format_parse_error(input, days_of_week_start, err))?;
 
     let timezone_start = days_of_week_end + 1;
-    let timezone = if timezone_start < normalized.len() {
-        let timezone_end = normalized.len();
-        let timezone_part = &normalized[timezone_start..timezone_end];
-        parse_timezone(timezone_part)
-            .map_err(|err| format_parse_error(normalized, timezone_start, err))?
+    let timezone = if timezone_start < input.len() {
+        parse_timezone(&input[timezone_start..])
+            .map_err(|err| format_parse_error(input, timezone_start, err))?
     } else {
         match options.fallback_timezone_option {
             FallbackTimezoneOption::System => jiff::tz::TimeZone::system(),
             FallbackTimezoneOption::UTC => jiff::tz::TimeZone::UTC,
             FallbackTimezoneOption::None => {
-                return Err(format_incomplete_error(normalized, "timezone"));
+                return Err(format_incomplete_error(input, "timezone"));
             }
         }
     };
@@ -285,6 +269,26 @@ fn format_parse_error(input: &str, start: usize, parse_error: ParseFailure) -> E
         .unwrap_or("malformed expression");
 
     format_error(input, &indent, error)
+}
+
+fn normalized_error_input(input: &str) -> Cow<'_, str> {
+    let mut previous_was_space = true;
+    for byte in input.bytes() {
+        if byte.is_ascii_whitespace() {
+            if byte != b' ' || previous_was_space {
+                return Cow::Owned(normalize_crontab(input));
+            }
+            previous_was_space = true;
+        } else {
+            previous_was_space = false;
+        }
+    }
+
+    if previous_was_space {
+        Cow::Owned(normalize_crontab(input))
+    } else {
+        Cow::Borrowed(input)
+    }
 }
 
 fn parse_minutes(input: &str, options: ParseOptions) -> ParseResult<PossibleLiterals> {
@@ -873,6 +877,17 @@ mod tests {
 
         // Keep numeric and named literals aligned with common cron syntax and the crate docs.
         assert_debug_snapshot!(parse_crontab("00 04 01 Jan-Mar/02 Mon-Fri UTC").unwrap());
+    }
+
+    #[test]
+    fn test_parse_crontab_irregular_whitespace() {
+        let canonical = parse_crontab("2 4 * * 0-6 Asia/Shanghai").unwrap();
+        let irregular = parse_crontab("\t2  4 *\n* 0-6  Asia/Shanghai ").unwrap();
+        assert_eq!(format!("{canonical:?}"), format!("{irregular:?}"));
+
+        let canonical = parse_crontab("invalid 4 * * * Asia/Shanghai").unwrap_err();
+        let irregular = parse_crontab("\tinvalid  4 *\n* *  Asia/Shanghai ").unwrap_err();
+        assert_eq!(canonical.to_string(), irregular.to_string());
     }
 
     #[test]
