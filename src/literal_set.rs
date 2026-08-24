@@ -18,7 +18,7 @@ use std::ops::RangeInclusive;
 /// An allocation-free set of literals in the range `0..64`.
 ///
 /// Insertion is idempotent, membership checks take constant time, and iteration yields values in
-/// ascending order. Cron fields use at most `0..=59`, so every literal fits in one `u64`.
+/// ascending order. Cron fields use at most `0..60`, so every literal fits in one `u64`.
 #[derive(Clone, Copy, Default)]
 pub struct LiteralSet(u64);
 

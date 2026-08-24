@@ -333,7 +333,7 @@ impl Crontab {
 
         loop {
             if next > bound {
-                return Err(Error(format!(
+                return Err(Error::new(format!(
                     "failed to find next timestamp in four years; end with {next}"
                 )));
             }
@@ -460,7 +460,7 @@ fn advance_time_and_round(zdt: Zoned, span: Span, unit: Option<Unit>) -> Result<
 }
 
 fn error_with_context<E: std::error::Error>(context: &str) -> impl FnOnce(E) -> Error + '_ {
-    move |error| Error(format!("{context}: {error}"))
+    move |error| Error::new(format!("{context}: {error}"))
 }
 
 #[cfg(test)]

@@ -334,7 +334,7 @@ impl<'a> TryFrom<&'a str> for Crontab {
 
 fn format_error(input: &str, indent: &str, reason: &str) -> Error {
     let context = "failed to parse crontab expression";
-    Error(format!("{context}:\n{input}\n{indent}^ {reason}"))
+    Error::new(format!("{context}:\n{input}\n{indent}^ {reason}"))
 }
 
 fn format_incomplete_error(input: &str, next_part: &str) -> Error {

@@ -16,7 +16,14 @@ use std::fmt;
 
 /// An error that can occur in this crate.
 #[derive(Debug, Clone)]
-pub struct Error(pub(crate) String);
+pub struct Error(String);
+
+impl Error {
+    /// Creates a new error with the given message.
+    pub fn new(msg: impl Into<String>) -> Self {
+        Self(msg.into())
+    }
+}
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

@@ -306,7 +306,7 @@
 //! Most of the time, we choose to use the wildcard to make the cron more legible. However, by now
 //! you understand why `0 12 */2 * 0,6` does not run on every uneven day of the month plus on
 //! Saturday and Sundays. Instead, due to this bug, it only runs if today is uneven and is also on a
-//! weekend. To accomplish the former behaviour, you have to rewrite the schedule as `0 12 1-31/2 *
+//! weekend. To accomplish the former behavior, you have to rewrite the schedule as `0 12 1-31/2 *
 //! 0,6`.
 //!
 //!```rust
@@ -470,14 +470,14 @@ mod error;
 mod literal_set;
 mod parser;
 
-pub use crontab::CronTimesIter;
-pub use crontab::Crontab;
-pub use crontab::MakeTimestamp;
-pub use error::Error;
-pub use parser::FallbackTimezoneOption;
-pub use parser::ParseOptions;
-pub use parser::normalize_crontab;
-pub use parser::parse_crontab;
-pub use parser::parse_crontab_with;
+pub use self::crontab::CronTimesIter;
+pub use self::crontab::Crontab;
+pub use self::crontab::MakeTimestamp;
+pub use self::error::Error;
+pub use self::parser::FallbackTimezoneOption;
+pub use self::parser::ParseOptions;
+pub use self::parser::normalize_crontab;
+pub use self::parser::parse_crontab;
+pub use self::parser::parse_crontab_with;
 
 pub extern crate jiff;
