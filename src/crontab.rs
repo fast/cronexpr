@@ -30,21 +30,45 @@ use crate::literal_set::LiteralSet;
 /// A data struct representing the crontab expression.
 #[derive(Debug, Clone)]
 pub struct Crontab {
-    pub(crate) minutes: PossibleLiterals,
-    pub(crate) hours: PossibleLiterals,
-    pub(crate) months: PossibleLiterals,
-    pub(crate) days_of_month: ParsedDaysOfMonth,
-    pub(crate) days_of_week: ParsedDaysOfWeek,
-    pub(crate) timezone: TimeZone,
+    minutes: PossibleLiterals,
+    hours: PossibleLiterals,
+    months: PossibleLiterals,
+    days_of_month: ParsedDaysOfMonth,
+    days_of_week: ParsedDaysOfWeek,
+    timezone: TimeZone,
+}
+
+impl Crontab {
+    pub(crate) fn new(
+        minutes: PossibleLiterals,
+        hours: PossibleLiterals,
+        months: PossibleLiterals,
+        days_of_month: ParsedDaysOfMonth,
+        days_of_week: ParsedDaysOfWeek,
+        timezone: TimeZone,
+    ) -> Self {
+        Self {
+            minutes,
+            hours,
+            months,
+            days_of_month,
+            days_of_week,
+            timezone,
+        }
+    }
 }
 
 /// Literal values accepted by a cron field.
 #[derive(Debug, Clone)]
 pub struct PossibleLiterals {
-    pub(crate) values: LiteralSet,
+    values: LiteralSet,
 }
 
 impl PossibleLiterals {
+    pub(crate) fn new(values: LiteralSet) -> Self {
+        Self { values }
+    }
+
     fn matches(&self, value: u8) -> bool {
         self.values.contains(value)
     }
@@ -53,20 +77,34 @@ impl PossibleLiterals {
 #[derive(Debug, Clone)]
 pub struct ParsedDaysOfWeek {
     /// Literal weekdays accepted by this field.
-    pub(crate) literals: LiteralSet,
+    literals: LiteralSet,
     /// Weekdays selected by the `<weekday>L` extension.
-    pub(crate) last_days_of_week: LiteralSet,
+    last_days_of_week: LiteralSet,
     /// Ordinal weekdays selected by the `<weekday>#<nth>` extension.
     ///
     /// Each pair occupies the bit returned by [`encode_nth_weekday`].
-    pub(crate) nth_days_of_week: LiteralSet,
+    nth_days_of_week: LiteralSet,
 
     // to implement Vixie's cron behavior
     // ref - https://crontab.guru/cron-bug.html
-    pub(crate) start_with_asterisk: bool,
+    start_with_asterisk: bool,
 }
 
 impl ParsedDaysOfWeek {
+    pub(crate) fn new(
+        literals: LiteralSet,
+        last_days_of_week: LiteralSet,
+        nth_days_of_week: LiteralSet,
+        start_with_asterisk: bool,
+    ) -> Self {
+        Self {
+            literals,
+            last_days_of_week,
+            nth_days_of_week,
+            start_with_asterisk,
+        }
+    }
+
     fn matches(&self, value: &Zoned) -> bool {
         let weekday = value.weekday();
         if self.literals.contains(weekday as u8) {
@@ -100,18 +138,32 @@ pub(crate) fn encode_nth_weekday(nth: u8, weekday: Weekday) -> u8 {
 #[derive(Debug, Clone)]
 pub struct ParsedDaysOfMonth {
     /// Literal days accepted by this field.
-    pub(crate) literals: LiteralSet,
+    literals: LiteralSet,
     /// Whether the `L` extension is present.
-    pub(crate) last_day_of_month: bool,
+    last_day_of_month: bool,
     /// Days selected by the `<day>W` extension.
-    pub(crate) nearest_weekdays: LiteralSet,
+    nearest_weekdays: LiteralSet,
 
     // to implement Vixie's cron behavior
     // ref - https://crontab.guru/cron-bug.html
-    pub(crate) start_with_asterisk: bool,
+    start_with_asterisk: bool,
 }
 
 impl ParsedDaysOfMonth {
+    pub(crate) fn new(
+        literals: LiteralSet,
+        last_day_of_month: bool,
+        nearest_weekdays: LiteralSet,
+        start_with_asterisk: bool,
+    ) -> Self {
+        Self {
+            literals,
+            last_day_of_month,
+            nearest_weekdays,
+            start_with_asterisk,
+        }
+    }
+
     fn matches(&self, value: &Zoned) -> bool {
         if self.literals.contains(value.day() as u8) {
             return true;
@@ -245,7 +297,7 @@ impl FromStr for MakeTimestamp {
     fn from_str(input: &str) -> Result<Self, Self::Err> {
         Timestamp::from_str(input)
             .map(MakeTimestamp)
-            .map_err(error_with_context("failed to parse timestamp"))
+            .map_err(|error| Error::with_context("failed to parse timestamp", error))
     }
 }
 
@@ -261,25 +313,25 @@ impl MakeTimestamp {
     pub fn from_second(second: i64) -> Result<Self, Error> {
         Timestamp::from_second(second)
             .map(MakeTimestamp)
-            .map_err(error_with_context("failed to make timestamp"))
+            .map_err(|error| Error::with_context("failed to make timestamp", error))
     }
 
     pub fn from_millisecond(millisecond: i64) -> Result<Self, Error> {
         Timestamp::from_millisecond(millisecond)
             .map(MakeTimestamp)
-            .map_err(error_with_context("failed to make timestamp"))
+            .map_err(|error| Error::with_context("failed to make timestamp", error))
     }
 
     pub fn from_microsecond(microsecond: i64) -> Result<Self, Error> {
         Timestamp::from_microsecond(microsecond)
             .map(MakeTimestamp)
-            .map_err(error_with_context("failed to make timestamp"))
+            .map_err(|error| Error::with_context("failed to make timestamp", error))
     }
 
     pub fn from_nanosecond(nanosecond: i128) -> Result<Self, Error> {
         Timestamp::from_nanosecond(nanosecond)
             .map(MakeTimestamp)
-            .map_err(error_with_context("failed to make timestamp"))
+            .map_err(|error| Error::with_context("failed to make timestamp", error))
     }
 }
 
@@ -298,7 +350,7 @@ impl Crontab {
     {
         let start = start
             .try_into()
-            .map_err(error_with_context("failed to parse start timestamp"))?;
+            .map_err(|error| Error::with_context("failed to parse start timestamp", error))?;
 
         Ok(CronTimesIter {
             crontab: self.clone(),
@@ -322,7 +374,7 @@ impl Crontab {
         let zoned = timestamp
             .try_into()
             .map(|ts| ts.0.to_zoned(self.timezone.clone()))
-            .map_err(error_with_context("failed to parse timestamp"))?;
+            .map_err(|error| Error::with_context("failed to parse timestamp", error))?;
 
         // checked at most 4 years to cover the leap year case
         let bound = &zoned + 4.years();
@@ -377,7 +429,7 @@ impl Crontab {
         let zoned = timestamp
             .try_into()
             .map(|ts| ts.0.to_zoned(self.timezone.clone()))
-            .map_err(error_with_context("failed to parse timestamp"))?;
+            .map_err(|error| Error::with_context("failed to parse timestamp", error))?;
 
         Ok(self.matches_or_next(zoned)?.is_ok())
     }
@@ -444,23 +496,25 @@ impl Iterator for CronTimesIter {
 fn advance_time_and_round(zdt: Zoned, span: Span, unit: Option<Unit>) -> Result<Zoned, Error> {
     let mut next = zdt;
 
-    next = next.checked_add(span).map_err(error_with_context(&format!(
-        "failed to advance timestamp; end with {next}"
-    )))?;
+    next = next.checked_add(span).map_err(|error| {
+        Error::with_context(
+            format_args!("failed to advance timestamp; end with {next}"),
+            error,
+        )
+    })?;
 
     if let Some(unit) = unit {
         next = next
             .round(ZonedRound::new().mode(RoundMode::Trunc).smallest(unit))
-            .map_err(error_with_context(&format!(
-                "failed to round timestamp; end with {next}"
-            )))?;
+            .map_err(|error| {
+                Error::with_context(
+                    format_args!("failed to round timestamp; end with {next}"),
+                    error,
+                )
+            })?;
     }
 
     Ok(next)
-}
-
-fn error_with_context<E: std::error::Error>(context: &str) -> impl FnOnce(E) -> Error + '_ {
-    move |error| Error::new(format!("{context}: {error}"))
 }
 
 #[cfg(test)]

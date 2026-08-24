@@ -25,6 +25,7 @@ use crate::crontab::ParsedDaysOfWeek;
 use crate::crontab::PossibleLiterals;
 use crate::crontab::encode_nth_weekday;
 use crate::error::Error;
+use crate::error::ParseErrorReason;
 use crate::literal_set::LiteralSet;
 
 /// Determine the timezone to fallback when the timezone part is missing.
@@ -96,7 +97,7 @@ impl ParseContext {
 #[derive(Debug)]
 struct ParseFailure {
     offset: usize,
-    reason: Option<String>,
+    reason: Option<ParseErrorReason>,
 }
 
 impl ParseFailure {
@@ -107,10 +108,10 @@ impl ParseFailure {
         }
     }
 
-    fn custom(offset: usize, reason: impl Into<String>) -> Self {
+    fn custom(offset: usize, reason: ParseErrorReason) -> Self {
         ParseFailure {
             offset,
-            reason: Some(reason.into()),
+            reason: Some(reason),
         }
     }
 }
@@ -237,17 +238,21 @@ pub fn parse_crontab_with(input: &str, options: ParseOptions) -> Result<Crontab,
 
 fn parse_normalized_crontab(input: &str, options: ParseOptions) -> Result<Crontab, Error> {
     if input.is_empty() {
-        return Err(format_error(input, "", "cannot be empty"));
+        return Err(Error::parse(
+            input,
+            0,
+            ParseErrorReason::Message("cannot be empty"),
+        ));
     }
 
-    fn find_next_part(input: &str, start: usize, next_part: &str) -> Result<usize, Error> {
+    fn find_next_part(input: &str, start: usize, reason: &'static str) -> Result<usize, Error> {
         if start < input.len() {
             Ok(input[start..]
                 .find(' ')
                 .map(|end| start + end)
                 .unwrap_or(input.len()))
         } else {
-            Err(format_incomplete_error(input, next_part))
+            Err(format_incomplete_error(input, reason))
         }
     }
 
@@ -257,23 +262,23 @@ fn parse_normalized_crontab(input: &str, options: ParseOptions) -> Result<Cronta
         .map_err(|err| format_parse_error(input, minutes_start, err))?;
 
     let hours_start = minutes_end + 1;
-    let hours_end = find_next_part(input, hours_start, "hours")?;
+    let hours_end = find_next_part(input, hours_start, "missing hours")?;
     let hours = parse_hours(&input[hours_start..hours_end], options)
         .map_err(|err| format_parse_error(input, hours_start, err))?;
 
     let days_of_month_start = hours_end + 1;
-    let days_of_month_end = find_next_part(input, days_of_month_start, "days of month")?;
+    let days_of_month_end = find_next_part(input, days_of_month_start, "missing days of month")?;
     let days_of_month =
         parse_days_of_month(&input[days_of_month_start..days_of_month_end], options)
             .map_err(|err| format_parse_error(input, days_of_month_start, err))?;
 
     let months_start = days_of_month_end + 1;
-    let months_end = find_next_part(input, months_start, "months")?;
+    let months_end = find_next_part(input, months_start, "missing months")?;
     let months = parse_months(&input[months_start..months_end], options)
         .map_err(|err| format_parse_error(input, months_start, err))?;
 
     let days_of_week_start = months_end + 1;
-    let days_of_week_end = find_next_part(input, days_of_week_start, "days of week")?;
+    let days_of_week_end = find_next_part(input, days_of_week_start, "missing days of week")?;
     let days_of_week = parse_days_of_week(&input[days_of_week_start..days_of_week_end], options)
         .map_err(|err| format_parse_error(input, days_of_week_start, err))?;
 
@@ -286,19 +291,19 @@ fn parse_normalized_crontab(input: &str, options: ParseOptions) -> Result<Cronta
             FallbackTimezoneOption::System => jiff::tz::TimeZone::system(),
             FallbackTimezoneOption::UTC => jiff::tz::TimeZone::UTC,
             FallbackTimezoneOption::None => {
-                return Err(format_incomplete_error(input, "timezone"));
+                return Err(format_incomplete_error(input, "missing timezone"));
             }
         }
     };
 
-    Ok(Crontab {
+    Ok(Crontab::new(
         minutes,
         hours,
-        days_of_month,
         months,
+        days_of_month,
         days_of_week,
         timezone,
-    })
+    ))
 }
 
 /// Parse a crontab expression to [`Crontab`] with the default [`ParseOptions`]. See
@@ -332,26 +337,16 @@ impl<'a> TryFrom<&'a str> for Crontab {
     }
 }
 
-fn format_error(input: &str, indent: &str, reason: &str) -> Error {
-    let context = "failed to parse crontab expression";
-    Error::new(format!("{context}:\n{input}\n{indent}^ {reason}"))
-}
-
-fn format_incomplete_error(input: &str, next_part: &str) -> Error {
-    let indent = " ".repeat(input.len());
-    format_error(input, &indent, &format!("missing {next_part}"))
+fn format_incomplete_error(input: &str, reason: &'static str) -> Error {
+    Error::parse(input, input.len(), ParseErrorReason::Message(reason))
 }
 
 fn format_parse_error(input: &str, start: usize, parse_error: ParseFailure) -> Error {
     let offset = start + parse_error.offset;
-    let indent = " ".repeat(offset);
-
-    let error = parse_error
+    let reason = parse_error
         .reason
-        .as_deref()
-        .unwrap_or("malformed expression");
-
-    format_error(input, &indent, error)
+        .unwrap_or(ParseErrorReason::Message("malformed expression"));
+    Error::parse(input, offset, reason)
 }
 
 fn normalized_error_input(input: &str) -> Cow<'_, str> {
@@ -427,12 +422,12 @@ fn parse_days_of_week(input: &str, options: ParseOptions) -> ParseResult<ParsedD
             }
         })
     })?;
-    Ok(ParsedDaysOfWeek {
+    Ok(ParsedDaysOfWeek::new(
         literals,
         last_days_of_week,
         nth_days_of_week,
         start_with_asterisk,
-    })
+    ))
 }
 
 fn parse_days_of_month(input: &str, options: ParseOptions) -> ParseResult<ParsedDaysOfMonth> {
@@ -448,12 +443,12 @@ fn parse_days_of_month(input: &str, options: ParseOptions) -> ParseResult<Parsed
     let mut nearest_weekdays = LiteralSet::default();
     if input == "*" {
         context.insert_range(&mut literals, context.range());
-        return Ok(ParsedDaysOfMonth {
+        return Ok(ParsedDaysOfMonth::new(
             literals,
             last_day_of_month,
             nearest_weekdays,
             start_with_asterisk,
-        });
+        ));
     }
     parse_list(input, |item, offset| {
         parse_day_of_month_item(item, offset, context, &mut literals, &mut |extension| {
@@ -463,26 +458,19 @@ fn parse_days_of_month(input: &str, options: ParseOptions) -> ParseResult<Parsed
             }
         })
     })?;
-    Ok(ParsedDaysOfMonth {
+    Ok(ParsedDaysOfMonth::new(
         literals,
         last_day_of_month,
         nearest_weekdays,
         start_with_asterisk,
-    })
+    ))
 }
 
 fn parse_timezone(timezone: &str) -> ParseResult<jiff::tz::TimeZone> {
     static PARSER: DateTimeParser = DateTimeParser::new();
-    PARSER.parse_time_zone(timezone).map_err(|_| {
-        ParseFailure::custom(
-            0,
-            format!(
-                "failed to find timezone {timezone}; \
-                for a list of time zones, see the list of tz database time zones on Wikipedia: \
-                https://en.wikipedia.org/wiki/List_of_tz_database_time_zones#List"
-            ),
-        )
-    })
+    PARSER
+        .parse_time_zone(timezone)
+        .map_err(|_| ParseFailure::custom(0, ParseErrorReason::UnknownTimezone))
 }
 
 fn parse_literal_field(
@@ -493,12 +481,12 @@ fn parse_literal_field(
     let mut literals = LiteralSet::default();
     if input == "*" {
         context.insert_range(&mut literals, context.range());
-        return Ok(PossibleLiterals { values: literals });
+        return Ok(PossibleLiterals::new(literals));
     }
     parse_list(input, |item, offset| {
         parse_literal_item(item, offset, context, kind, &mut literals)
     })?;
-    Ok(PossibleLiterals { values: literals })
+    Ok(PossibleLiterals::new(literals))
 }
 
 fn parse_list<F>(input: &str, mut parse_item: F) -> ParseResult<()>
@@ -740,7 +728,7 @@ fn parse_range_item(
     if lo > hi {
         return Err(ParseFailure::custom(
             offset,
-            format!("range must be in ascending order; found {lo}-{hi}"),
+            ParseErrorReason::RangeNotAscending { start: lo, end: hi },
         ));
     }
 
@@ -770,12 +758,20 @@ fn parse_step_item(
     };
 
     if step == 0 {
-        return Err(ParseFailure::custom(offset, "step must be greater than 0"));
+        return Err(ParseFailure::custom(
+            offset,
+            ParseErrorReason::Message("step must be greater than 0"),
+        ));
     }
     if step > u8::MAX as u64 || !context.range().contains(&(step as u8)) {
         return Err(ParseFailure::custom(
             offset,
-            format!("step must be in range {:?}; found {step}", context.range()),
+            ParseErrorReason::OutOfRange {
+                subject: "step",
+                min: context.min,
+                max: context.max,
+                value: step,
+            },
         ));
     }
 
@@ -806,10 +802,12 @@ fn parse_literal(
     if value > u8::MAX as u64 || !context.range().contains(&(value as u8)) {
         return Err(ParseFailure::custom(
             offset,
-            format!(
-                "value must be in range {:?}; found {value}",
-                context.range()
-            ),
+            ParseErrorReason::OutOfRange {
+                subject: "value",
+                min: context.min,
+                max: context.max,
+                value,
+            },
         ));
     }
     Ok((value as u8, len))
