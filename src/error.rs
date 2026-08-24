@@ -16,17 +16,27 @@ use std::fmt;
 
 /// An error that can occur in this crate.
 #[derive(Clone)]
-pub struct Error {
-    text: String,
-    parse: Option<ParseError>,
+pub struct Error(ErrorKind);
+
+#[derive(Debug, Clone)]
+enum ErrorKind {
+    Message(String),
+    WithSource {
+        message: String,
+        source: SourceError,
+    },
+    Parse(ParseError),
 }
 
-// Keep parse diagnostics structured until display so constructing an error only copies the input.
 #[derive(Debug, Clone)]
 struct ParseError {
+    input: String,
     offset: usize,
     reason: ParseErrorReason,
 }
+
+#[derive(Debug, Clone)]
+struct SourceError(String);
 
 #[derive(Debug, Clone)]
 pub(crate) enum ParseErrorReason {
@@ -45,36 +55,48 @@ pub(crate) enum ParseErrorReason {
 }
 
 impl Error {
-    /// Creates a new error with the given message.
-    pub fn new(msg: impl Into<String>) -> Self {
-        Self {
-            text: msg.into(),
-            parse: None,
-        }
+    pub(crate) fn message(message: impl Into<String>) -> Self {
+        Self(ErrorKind::Message(message.into()))
     }
 
-    pub(crate) fn with_context(context: impl fmt::Display, error: impl fmt::Display) -> Self {
-        Self::new(format!("{context}: {error}"))
+    pub(crate) fn with_source(message: impl Into<String>, source: impl std::error::Error) -> Self {
+        Self(ErrorKind::WithSource {
+            message: message.into(),
+            source: SourceError(source.to_string()),
+        })
     }
 
     pub(crate) fn parse(input: &str, offset: usize, reason: ParseErrorReason) -> Self {
-        Self {
-            text: input.to_owned(),
-            parse: Some(ParseError { offset, reason }),
-        }
+        Self(ErrorKind::Parse(ParseError {
+            input: input.to_owned(),
+            offset,
+            reason,
+        }))
     }
 }
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let Some(ParseError { offset, reason }) = &self.parse else {
-            return f.write_str(&self.text);
-        };
+        match &self.0 {
+            ErrorKind::Message(message) => f.write_str(message),
+            ErrorKind::WithSource { message, source } => write!(f, "{message}: {source}"),
+            ErrorKind::Parse(error) => error.fmt(f),
+        }
+    }
+}
+
+impl fmt::Display for ParseError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let Self {
+            input,
+            offset,
+            reason,
+        } = self;
 
         write!(
             f,
             "failed to parse crontab expression:\n{}\n{:offset$}^ ",
-            self.text, ""
+            input, ""
         )?;
         match reason {
             ParseErrorReason::Message(message) => f.write_str(message),
@@ -83,7 +105,7 @@ impl fmt::Display for Error {
                 "failed to find timezone {}; \
                 for a list of time zones, see the list of tz database time zones on Wikipedia: \
                 https://en.wikipedia.org/wiki/List_of_tz_database_time_zones#List",
-                &self.text[*offset..]
+                &input[*offset..]
             ),
             ParseErrorReason::RangeNotAscending { start, end } => {
                 write!(f, "range must be in ascending order; found {start}-{end}")
@@ -100,10 +122,39 @@ impl fmt::Display for Error {
     }
 }
 
+impl fmt::Display for SourceError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
 impl fmt::Debug for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Error({:?})", self.to_string())
     }
 }
 
-impl std::error::Error for Error {}
+impl std::error::Error for Error {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match &self.0 {
+            ErrorKind::WithSource { source, .. } => Some(source),
+            ErrorKind::Message(_) | ErrorKind::Parse(_) => None,
+        }
+    }
+}
+
+impl std::error::Error for SourceError {}
+
+#[cfg(test)]
+mod tests {
+    use std::error::Error as _;
+
+    use super::Error;
+
+    #[test]
+    fn preserves_source_error() {
+        let error = Error::with_source("outer", std::io::Error::other("inner"));
+        assert_eq!(error.to_string(), "outer: inner");
+        assert_eq!(error.source().unwrap().to_string(), "inner");
+    }
+}
