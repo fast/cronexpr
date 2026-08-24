@@ -479,7 +479,9 @@ use jiff::ZonedRound;
 use jiff::civil::Weekday;
 use jiff::tz::TimeZone;
 
+mod literal_set;
 mod parser;
+use literal_set::LiteralSet;
 pub use parser::FallbackTimezoneOption;
 pub use parser::ParseOptions;
 pub use parser::normalize_crontab;
@@ -545,30 +547,6 @@ enum PossibleValue {
     /// example, entering `5#3` in the day-of-week field corresponds to the third Friday of every
     /// month.
     NthDayOfWeek(u8, Weekday),
-}
-
-/// A compact set for cron field values, whose largest valid value is 59.
-#[derive(Clone, Copy, Default)]
-struct LiteralSet(u64);
-
-impl LiteralSet {
-    fn insert(&mut self, value: u8) {
-        self.0 |= 1_u64 << value;
-    }
-
-    fn contains(&self, value: u8) -> bool {
-        self.0 & (1_u64 << value) != 0
-    }
-
-    fn iter(&self) -> impl Iterator<Item = u8> + '_ {
-        (0..u64::BITS as u8).filter(|value| self.contains(*value))
-    }
-}
-
-impl fmt::Debug for LiteralSet {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_set().entries(self.iter()).finish()
-    }
 }
 
 /// @see [PossibleValue::Literal]

@@ -21,11 +21,11 @@ use jiff::fmt::temporal::DateTimeParser;
 
 use crate::Crontab;
 use crate::Error;
-use crate::LiteralSet;
 use crate::ParsedDaysOfMonth;
 use crate::ParsedDaysOfWeek;
 use crate::PossibleLiterals;
 use crate::PossibleValue;
+use crate::literal_set::LiteralSet;
 
 /// Determine the timezone to fallback when the timezone part is missing.
 ///
