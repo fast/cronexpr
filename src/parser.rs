@@ -769,21 +769,20 @@ fn parse_literal(
 }
 
 fn parse_decimal(input: &str, offset: usize) -> ParseResult<(u64, usize)> {
-    let len = input
-        .as_bytes()
-        .iter()
-        .take_while(|byte| byte.is_ascii_digit())
-        .count();
-    if len == 0 {
-        return Err(ParseFailure::malformed(offset));
-    }
-
     let mut value = 0_u64;
-    for byte in &input.as_bytes()[..len] {
+    let mut len = 0;
+    for byte in input.bytes() {
+        if !byte.is_ascii_digit() {
+            break;
+        }
         value = value
             .checked_mul(10)
             .and_then(|value| value.checked_add(u64::from(byte - b'0')))
             .ok_or_else(|| ParseFailure::malformed(offset))?;
+        len += 1;
+    }
+    if len == 0 {
+        return Err(ParseFailure::malformed(offset));
     }
     Ok((value, len))
 }
