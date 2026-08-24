@@ -38,6 +38,22 @@ impl LiteralSet {
         self.0 |= from_start & through_end;
     }
 
+    pub fn insert_step(&mut self, range: RangeInclusive<u8>, step: u8) {
+        let (mut value, end) = range.into_inner();
+        debug_assert!(value <= end);
+        debug_assert!(end < u64::BITS as u8);
+        debug_assert!(step > 0);
+
+        loop {
+            self.0 |= 1_u64 << value;
+            let next = value + step;
+            if next > end {
+                break;
+            }
+            value = next;
+        }
+    }
+
     pub fn contains(&self, value: u8) -> bool {
         debug_assert!(value < u64::BITS as u8);
         self.0 & (1_u64 << value) != 0
@@ -65,12 +81,16 @@ mod tests {
         set.insert(0);
         set.insert(63);
         set.insert_range(2..=4);
+        set.insert_step(5..=9, 2);
 
         assert!(set.contains(0));
         assert!(set.contains(63));
         assert!(!set.contains(1));
-        assert_eq!(set.iter().collect::<Vec<_>>(), vec![0, 2, 3, 4, 63]);
-        assert_eq!(format!("{set:?}"), "{0, 2, 3, 4, 63}");
+        assert_eq!(
+            set.iter().collect::<Vec<_>>(),
+            vec![0, 2, 3, 4, 5, 7, 9, 63]
+        );
+        assert_eq!(format!("{set:?}"), "{0, 2, 3, 4, 5, 7, 9, 63}");
 
         set.insert_range(0..=63);
         assert_eq!(set.iter().count(), 64);

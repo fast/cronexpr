@@ -87,6 +87,10 @@ impl ParseContext {
     fn insert_range(self, literals: &mut LiteralSet, range: RangeInclusive<u8>) {
         self.normalization.insert_range(literals, range);
     }
+
+    fn insert_step(self, literals: &mut LiteralSet, range: RangeInclusive<u8>, step: u8) {
+        self.normalization.insert_step(literals, range, step);
+    }
 }
 
 #[derive(Debug)]
@@ -146,6 +150,20 @@ impl LiteralNormalization {
                 }
             }
             LiteralNormalization::Sunday => literals.insert_range(start..=end),
+        }
+    }
+
+    fn insert_step(self, literals: &mut LiteralSet, range: RangeInclusive<u8>, step: u8) {
+        let (start, end) = range.into_inner();
+        match self {
+            LiteralNormalization::Identity => literals.insert_step(start..=end, step),
+            LiteralNormalization::Sunday if start == 0 => {
+                literals.insert(7);
+                if step <= end {
+                    literals.insert_step(step..=end, step);
+                }
+            }
+            LiteralNormalization::Sunday => literals.insert_step(start..=end, step),
         }
     }
 }
@@ -736,7 +754,7 @@ fn parse_step_item(
     if end != input.len() {
         return Err(ParseFailure::malformed(offset + end));
     }
-    insert_literals(literals, candidates.step_by(step as usize), context);
+    context.insert_step(literals, candidates, step as u8);
     Ok(())
 }
 
@@ -793,16 +811,6 @@ fn parse_named_literal(input: &str, names: &[(&[u8; 3], u8)]) -> Option<(u8, usi
         .iter()
         .find(|(name, _)| prefix.eq_ignore_ascii_case(name.as_slice()))
         .map(|(_, value)| (*value, 3))
-}
-
-fn insert_literals(
-    literals: &mut LiteralSet,
-    values: impl IntoIterator<Item = u8>,
-    context: ParseContext,
-) {
-    for value in values {
-        literals.insert(context.normalize(value));
-    }
 }
 
 fn make_weekday(value: u8) -> Weekday {
