@@ -515,10 +515,6 @@ pub struct Crontab {
 
 #[derive(Debug)]
 enum PossibleValue {
-    /// Literally match the value.
-    ///
-    /// For example, a possible literal of minute `15` matches when the minute is 15.
-    Literal(u8),
     /// Parsed from `<day>W` in day-of-month field.
     ///
     /// The `W` character is allowed for the day-of-month field. This character is used to specify
@@ -549,7 +545,7 @@ enum PossibleValue {
     NthDayOfWeek(u8, Weekday),
 }
 
-/// @see [PossibleValue::Literal]
+/// Literal values accepted by a cron field.
 #[derive(Debug, Clone)]
 struct PossibleLiterals {
     values: LiteralSet,
@@ -563,7 +559,7 @@ impl PossibleLiterals {
 
 #[derive(Debug, Clone)]
 struct ParsedDaysOfWeek {
-    /// @see [PossibleValue::Literal]
+    /// Literal weekdays accepted by this field.
     literals: LiteralSet,
     /// @see [PossibleValue::LastDayOfWeek]
     last_days_of_week: HashSet<Weekday>,
@@ -609,7 +605,7 @@ impl ParsedDaysOfWeek {
 
 #[derive(Debug, Clone)]
 struct ParsedDaysOfMonth {
-    /// @see [PossibleValue::Literal]
+    /// Literal days accepted by this field.
     literals: LiteralSet,
     /// @see [PossibleValue::LastDayOfMonth]
     last_day_of_month: bool,

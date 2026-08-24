@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use std::fmt;
+use std::ops::RangeInclusive;
 
 /// An allocation-free set of literals in the range `0..64`.
 ///
@@ -25,6 +26,16 @@ impl LiteralSet {
     pub fn insert(&mut self, value: u8) {
         debug_assert!(value < u64::BITS as u8);
         self.0 |= 1_u64 << value;
+    }
+
+    pub fn insert_range(&mut self, range: RangeInclusive<u8>) {
+        let (start, end) = range.into_inner();
+        debug_assert!(start <= end);
+        debug_assert!(end < u64::BITS as u8);
+
+        let from_start = u64::MAX << start;
+        let through_end = u64::MAX >> (u64::BITS - 1 - u32::from(end));
+        self.0 |= from_start & through_end;
     }
 
     pub fn contains(&self, value: u8) -> bool {
@@ -53,11 +64,15 @@ mod tests {
         set.insert(63);
         set.insert(0);
         set.insert(63);
+        set.insert_range(2..=4);
 
         assert!(set.contains(0));
         assert!(set.contains(63));
         assert!(!set.contains(1));
-        assert_eq!(set.iter().collect::<Vec<_>>(), vec![0, 63]);
-        assert_eq!(format!("{set:?}"), "{0, 63}");
+        assert_eq!(set.iter().collect::<Vec<_>>(), vec![0, 2, 3, 4, 63]);
+        assert_eq!(format!("{set:?}"), "{0, 2, 3, 4, 63}");
+
+        set.insert_range(0..=63);
+        assert_eq!(set.iter().count(), 64);
     }
 }
