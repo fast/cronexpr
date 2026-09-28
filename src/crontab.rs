@@ -111,21 +111,14 @@ impl ParsedDaysOfWeek {
             return true;
         }
 
-        if self.last_days_of_week.contains(weekday as u8)
-            && (value + 1.week()).month() > value.month()
+        if self.last_days_of_week.contains(weekday as u8) && value.day() + 7 > value.days_in_month()
         {
             return true;
         }
 
         let nth = ((value.day() - 1) / 7 + 1) as u8;
-        if self
-            .nth_days_of_week
+        self.nth_days_of_week
             .contains(encode_nth_weekday(nth, weekday))
-        {
-            return true;
-        }
-
-        false
     }
 }
 
@@ -169,7 +162,7 @@ impl ParsedDaysOfMonth {
             return true;
         }
 
-        if self.last_day_of_month && (value + 1.day()).month() > value.month() {
+        if self.last_day_of_month && value.day() == value.days_in_month() {
             return true;
         }
 
@@ -535,6 +528,58 @@ mod tests {
     }
 
     #[test]
+    fn test_last_day_matches_month_end() {
+        let crontab = Crontab::from_str("0 0 L * * Asia/Shanghai").unwrap();
+        for (timestamp, expected) in [
+            ("2024-02-28T00:00:00+08:00", false),
+            ("2024-02-29T00:00:00+08:00", true),
+            ("2025-02-28T00:00:00+08:00", true),
+            ("2024-11-30T00:00:00+08:00", true),
+            ("2024-12-30T00:00:00+08:00", false),
+            ("2024-12-31T00:00:00+08:00", true),
+            ("2025-01-01T00:00:00+08:00", false),
+            ("2025-01-31T00:00:00+08:00", true),
+        ] {
+            assert_eq!(crontab.matches(timestamp).unwrap(), expected, "{timestamp}");
+        }
+    }
+
+    #[test]
+    fn test_last_weekday_matches_december() {
+        for (weekday, day) in [
+            ("WED", 25),
+            ("THU", 26),
+            ("FRI", 27),
+            ("SAT", 28),
+            ("SUN", 29),
+            ("MON", 30),
+            ("TUE", 31),
+        ] {
+            let crontab = Crontab::from_str(&format!("0 0 * * {weekday}L UTC")).unwrap();
+            let last = format!("2024-12-{day}T00:00:00Z");
+            let previous = format!("2024-12-{}T00:00:00Z", day - 7);
+            assert!(!crontab.matches(previous.as_str()).unwrap(), "{previous}");
+            assert!(crontab.matches(last.as_str()).unwrap(), "{last}");
+        }
+    }
+
+    #[test]
+    fn test_last_day_iteration_across_year() {
+        let mut iter = make_iter("0 0 L * * UTC", "2024-11-01T00:00:00Z");
+        assert_snapshot!(next(&mut iter), @"2024-11-30T00:00:00+00:00[UTC]");
+        assert_snapshot!(next(&mut iter), @"2024-12-31T00:00:00+00:00[UTC]");
+        assert_snapshot!(next(&mut iter), @"2025-01-31T00:00:00+00:00[UTC]");
+        assert_snapshot!(next(&mut iter), @"2025-02-28T00:00:00+00:00[UTC]");
+    }
+
+    #[test]
+    fn test_last_weekday_december_filter() {
+        let mut iter = make_iter("4 2 * DEC 1L Asia/Shanghai", "2024-11-01T00:00:00Z");
+        assert_snapshot!(next(&mut iter), @"2024-12-30T02:04:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(next(&mut iter), @"2025-12-29T02:04:00+08:00[Asia/Shanghai]");
+    }
+
+    #[test]
     fn test_next_timestamp() {
         let mut iter = make_iter("0 0 1 1 * Asia/Shanghai", "2024-01-01T00:00:00+08:00");
         assert_snapshot!(next(&mut iter), @"2025-01-01T00:00:00+08:00[Asia/Shanghai]");
@@ -581,6 +626,7 @@ mod tests {
         assert_snapshot!(next(&mut iter), @"2024-09-30T02:04:00+08:00[Asia/Shanghai]");
         assert_snapshot!(next(&mut iter), @"2024-10-28T02:04:00+08:00[Asia/Shanghai]");
         assert_snapshot!(next(&mut iter), @"2024-11-25T02:04:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(next(&mut iter), @"2024-12-30T02:04:00+08:00[Asia/Shanghai]");
         assert_snapshot!(next(&mut iter), @"2025-01-27T02:04:00+08:00[Asia/Shanghai]");
         assert_snapshot!(next(&mut iter), @"2025-02-24T02:04:00+08:00[Asia/Shanghai]");
         assert_snapshot!(next(&mut iter), @"2025-03-31T02:04:00+08:00[Asia/Shanghai]");
@@ -613,6 +659,7 @@ mod tests {
         assert_snapshot!(next(&mut iter), @"2024-11-18T11:03:00+08:00[Asia/Shanghai]");
         assert_snapshot!(next(&mut iter), @"2024-11-30T11:03:00+08:00[Asia/Shanghai]");
         assert_snapshot!(next(&mut iter), @"2024-12-17T11:03:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(next(&mut iter), @"2024-12-31T11:03:00+08:00[Asia/Shanghai]");
 
         let mut iter = make_iter("3 11 1W * * Asia/Shanghai", "2024-09-24T00:08:35+08:00");
         assert_snapshot!(next(&mut iter), @"2024-10-01T11:03:00+08:00[Asia/Shanghai]");
