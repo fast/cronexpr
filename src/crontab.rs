@@ -451,7 +451,9 @@ impl Crontab {
         }
 
         if !self.hours.matches(zdt.hour() as u8) {
-            return advance_time_and_round(zdt, 1.hour(), Some(Unit::Hour)).map(Err);
+            // An hour-long step can skip the next boundary when an offset changes.
+            let minutes = 60 - zdt.minute();
+            return advance_time_and_round(zdt, minutes.minutes(), Some(Unit::Minute)).map(Err);
         }
 
         if !self.minutes.matches(zdt.minute() as u8) {
@@ -487,6 +489,7 @@ impl Iterator for CronTimesIter {
 }
 
 fn advance_time_and_round(zdt: Zoned, span: Span, unit: Option<Unit>) -> Result<Zoned, Error> {
+    let timestamp = zdt.timestamp();
     let mut next = zdt;
 
     next = next.checked_add(span).map_err(|error| {
@@ -495,9 +498,34 @@ fn advance_time_and_round(zdt: Zoned, span: Span, unit: Option<Unit>) -> Result<
         ))
     })?;
 
+    let transition = next
+        .time_zone()
+        .following(timestamp)
+        .next()
+        .map(|transition| transition.timestamp())
+        .filter(|transition| *transition <= next.timestamp());
+
     if let Some(unit) = unit {
         next = next
             .round(ZonedRound::new().mode(RoundMode::Trunc).smallest(unit))
+            .map_err(|error| {
+                Error::message(format!(
+                    "failed to round timestamp; end with {next}: {error}"
+                ))
+            })?;
+    }
+
+    if let Some(transition) = transition
+        && (next.timestamp() <= timestamp || transition <= next.timestamp())
+    {
+        // Recheck all fields after an offset change, but keep earlier rounded candidates.
+        next = transition.to_zoned(next.time_zone().clone());
+        next = next
+            .round(
+                ZonedRound::new()
+                    .mode(RoundMode::Ceil)
+                    .smallest(Unit::Minute),
+            )
             .map_err(|error| {
                 Error::message(format!(
                     "failed to round timestamp; end with {next}: {error}"
@@ -525,6 +553,58 @@ mod tests {
 
     fn next(iter: &mut CronTimesIter) -> Zoned {
         iter.next().unwrap().unwrap()
+    }
+
+    #[test]
+    fn test_next_timestamp_across_partial_hour_fall_back() {
+        let mut iter = make_iter("0 12 * * * Australia/Lord_Howe", "2016-04-01T15:00:00Z");
+        assert_snapshot!(next(&mut iter), @"2016-04-02T12:00:00+11:00[Australia/Lord_Howe]");
+        assert_snapshot!(next(&mut iter), @"2016-04-03T12:00:00+10:30[Australia/Lord_Howe]");
+        assert_snapshot!(next(&mut iter), @"2016-04-04T12:00:00+10:30[Australia/Lord_Howe]");
+
+        let mut iter = make_iter("0 2 * * * Australia/Lord_Howe", "2016-04-02T12:00:00Z");
+        assert_snapshot!(next(&mut iter), @"2016-04-03T02:00:00+10:30[Australia/Lord_Howe]");
+    }
+
+    #[test]
+    fn test_next_timestamp_in_repeated_partial_hour() {
+        let mut iter = make_iter("45 2 * * * Pacific/Chatham", "2024-04-06T12:00:00Z");
+        assert_snapshot!(next(&mut iter), @"2024-04-07T02:45:00+13:45[Pacific/Chatham]");
+        assert_snapshot!(next(&mut iter), @"2024-04-07T02:45:00+12:45[Pacific/Chatham]");
+        assert_snapshot!(next(&mut iter), @"2024-04-08T02:45:00+12:45[Pacific/Chatham]");
+    }
+
+    #[test]
+    fn test_next_timestamp_across_partial_hour_spring_forward() {
+        let mut iter = make_iter("30 2 * * * Australia/Lord_Howe", "2016-10-01T12:00:00Z");
+        assert_snapshot!(next(&mut iter), @"2016-10-02T02:30:00+11:00[Australia/Lord_Howe]");
+
+        let mut iter = make_iter("45 3 * * * Pacific/Chatham", "2024-09-28T12:00:00Z");
+        assert_snapshot!(next(&mut iter), @"2024-09-29T03:45:00+13:45[Pacific/Chatham]");
+
+        let mut iter = make_iter("0 2 * * * Australia/Lord_Howe", "2016-10-01T12:00:00Z");
+        assert_snapshot!(next(&mut iter), @"2016-10-03T02:00:00+11:00[Australia/Lord_Howe]");
+    }
+
+    #[test]
+    fn test_next_timestamp_after_transition_with_seconds() {
+        let mut iter = make_iter("* * * * * Africa/Monrovia", "1972-01-07T00:44:20Z");
+        assert_snapshot!(next(&mut iter), @"1972-01-07T00:45:00+00:00[Africa/Monrovia]");
+        assert_snapshot!(next(&mut iter), @"1972-01-07T00:46:00+00:00[Africa/Monrovia]");
+    }
+
+    #[test]
+    fn test_next_timestamp_before_offset_transition() {
+        let mut iter = make_iter("0 2 * * * Pacific/Chatham", "2024-09-28T13:00:00Z");
+        assert_snapshot!(next(&mut iter), @"2024-09-29T02:00:00+12:45[Pacific/Chatham]");
+
+        for expression in ["0 0 1 * * America/New_York", "0 0 * NOV * America/New_York"] {
+            let mut iter = make_iter(expression, "2015-10-31T12:00:00Z");
+            let expected: Zoned = "2015-11-01T00:00:00-04:00[America/New_York]"
+                .parse()
+                .unwrap();
+            assert_eq!(next(&mut iter), expected, "{expression}");
+        }
     }
 
     #[test]
