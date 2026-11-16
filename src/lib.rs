@@ -357,9 +357,8 @@
 //!
 //! ## Why do you create this crate?
 //!
-//! This crate was created for ScopeDB's background scheduled jobs. ScopeDB needs to parse cron
-//! expressions with explicit time zones and calculate the next execution timestamp. ScopeDB
-//! handles job execution separately.
+//! I created `cronexpr` for ScopeDB, a distributed analytical database, to schedule recurring SQL
+//! jobs such as deleting expired data and compacting tables.
 //!
 //! There are several good candidates like [`croner`] and [`saffron`], but they are not suitable for
 //! my use case. Both of them do _not_ support defining timezone in the expression which is

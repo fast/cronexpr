@@ -101,7 +101,7 @@ The competitive benchmark uses only five-field expressions accepted by every par
 
 ## Who is using `cronexpr`?
 
-ScopeDB uses `cronexpr` to parse cron schedules and calculate the next execution time for background jobs. ScopeDB handles job execution separately.
+ScopeDB, a distributed analytical database, uses `cronexpr` to schedule recurring SQL jobs such as deleting expired data and compacting tables.
 
 If you are using `cronexpr` in your project, please feel free to open a PR to add your project to this list.
 
