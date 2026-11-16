@@ -105,7 +105,7 @@
 //!
 //! # Timezone
 //!
-//! Timezone is parsed internally by [`jiff::tz::TimeZone::get`][TimeZone::get]. It supports all the
+//! Timezone is parsed internally by [`jiff::tz::TimeZone::get`]. It supports all the
 //! timezone names in the IANA Time Zone Database. See [the list of time zones](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones#List).
 //!
 //! # Single value
@@ -357,21 +357,8 @@
 //!
 //! ## Why do you create this crate?
 //!
-//! The other day when I was implementing the internal `CREATE JOB` statement in ScopeDB,
-//! it comes to a requirement to support parsing and driving a crontab expression.
-//!
-//! Typically, the language interface looks like:
-//!
-//! ```sql
-//! CREATE JOB do_retention
-//! SCHEDULE = '* * * * * Asia/Shanghai'
-//! AS
-//!     DELETE FROM t WHERE now() - ts > 'PT10s'::interval;
-//! ```
-//!
-//! The execution part of a traditional cron is the statement (`DELETE FROM ...`) here. Thus,
-//! what I need is a library to parse the crontab expression and find the next timestamp to execute
-//! the statement, without the need to execute the statement in the crontab library itself.
+//! I created `cronexpr` for ScopeDB, a distributed analytical database, to schedule recurring SQL
+//! jobs such as deleting expired data and compacting tables.
 //!
 //! There are several good candidates like [`croner`] and [`saffron`], but they are not suitable for
 //! my use case. Both of them do _not_ support defining timezone in the expression which is
