@@ -101,14 +101,7 @@ The competitive benchmark uses only five-field expressions accepted by every par
 
 ## Who is using `cronexpr`?
 
-The original purpose of this library is to be used in the internal `CREATE JOB` statement in ScopeDB, whose syntax looks like this:
-
-```sql
-CREATE JOB do_retention
-SCHEDULE = '* * * * * Asia/Shanghai'
-AS
-    DELETE FROM t WHERE now() - ts > 'PT10s'::interval;
-```
+ScopeDB uses `cronexpr` to parse cron schedules and calculate the next execution time for background jobs. ScopeDB handles job execution separately.
 
 If you are using `cronexpr` in your project, please feel free to open a PR to add your project to this list.
 

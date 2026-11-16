@@ -14,7 +14,7 @@
 
 [package]
 name = "cronexpr"
-version = "1.7.1"
+version = "1.7.2"
 
 description = "A library to parse and drive the crontab expression."
 edition = "2024"
@@ -29,13 +29,13 @@ all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
-jiff = { version = "0.2.35" }
+jiff = { version = "0.2.46" }
 
 [dev-dependencies]
-croner = { version = "=3.0.1" }
+croner = { version = "=4.0.3" }
 cronp = { version = "=0.3.0" }
 divan = { version = "0.1.21" }
-insta = { version = "1.48.0", features = ["filters"] }
+insta = { version = "1.49.0", features = ["filters"] }
 saffron = { version = "=0.1.0" }
 
 [[bench]]
